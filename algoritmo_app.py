@@ -83,6 +83,8 @@ _LINHA_INCRA_RE = re.compile(
 
 # O final "/@@display-file/file" é essencial: sem ele o gov.br devolve a página
 # HTML de descrição do arquivo, não o PDF em si.
+_PASTA_EXT_LIBS = os.path.join(os.path.dirname(__file__), "ext_libs")
+
 URL_PDF_INCRA = (
     "https://www.gov.br/incra/pt-br/acesso-a-informacao/"
     "indices_basicos_2013_por_municipio.pdf/@@display-file/file"
@@ -160,18 +162,18 @@ def _texto_pdf_com_layout(pdf_path, feedback):
     try:
         from pypdf import PdfReader
     except ImportError:
+        # usa a cópia do pypdf (6.21.3) e do typing_extensions (4.16.0) que vem
+        # em ext_libs/. Vai no FIM do sys.path para não passar na frente de
+        # versões já instaladas no Python do QGIS.
+        if _PASTA_EXT_LIBS not in sys.path:
+            sys.path.append(_PASTA_EXT_LIBS)
         try:
-            feedback.pushInfo("Instalando dependência pypdf (só nesta primeira vez)...")
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "--quiet", "pypdf"], check=True
-            )
             from pypdf import PdfReader
         except Exception as e:
             raise QgsProcessingException(
-                f"Não consegui extrair texto do PDF do INCRA: a biblioteca "
-                f"'pypdf' não está instalada e a instalação automática falhou "
-                f"({e}). Abra o Terminal OSGeo4W (ou o console Python do QGIS) "
-                f"e rode: python -m pip install pypdf"
+                f"Não consegui extrair texto do PDF do INCRA: falha ao carregar a "
+                f"biblioteca 'pypdf' incluída no plugin ({e}). Escolha um CSV com "
+                f"os módulos fiscais no campo 'Tabela de módulos fiscais'."
             )
 
     leitor = PdfReader(pdf_path)

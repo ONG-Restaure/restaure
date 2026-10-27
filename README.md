@@ -20,7 +20,6 @@ O Restaure reúne algoritmos de geoprocessamento na **Caixa de Ferramentas de Pr
   - [Gerador de Nascentes](#gerador-de-nascentes)
 - [Fluxo de trabalho sugerido](#fluxo-de-trabalho-sugerido)
 - [Aviso importante](#aviso-importante)
-- [Contribuindo](#contribuindo)
 - [Autores e contato](#autores-e-contato)
 - [Licença](#licença)
 
@@ -140,15 +139,6 @@ As ferramentas podem ser usadas de forma independente, mas se complementam:
 As ferramentas do Restaure são de **apoio técnico**. Elas **não substituem** a avaliação de profissional habilitado, a validação técnica dos dados de entrada nem a análise do órgão ambiental ou fundiário competente. Verifique sempre dados, parâmetros e legislação vigente (normas técnicas do INCRA, Lei nº 12.651/2012 e regras estaduais do PRA) antes de utilizar os resultados.
 
 Para instruções detalhadas sobre atributos, parâmetros, regras de cálculo, fluxo de revisão e solução de problemas, consulte o manual completo ou o material de treinamento de cada ferramenta.
-
----
-
-## Contribuindo
-
-Contribuições, relatos de erros e sugestões são bem-vindos.
-
-1. Abra uma **issue** descrevendo o problema ou a ideia, incluindo versão do QGIS e, se possível, dados de exemplo.
-2. Para propor alterações, faça um *fork*, crie uma branch e envie um *pull request*.
 
 ---
 

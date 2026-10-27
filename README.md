@@ -21,6 +21,7 @@ O Restaure reúne algoritmos de geoprocessamento na **Caixa de Ferramentas de Pr
 - [Fluxo de trabalho sugerido](#fluxo-de-trabalho-sugerido)
 - [Aviso importante](#aviso-importante)
 - [Autores e contato](#autores-e-contato)
+- [Redes sociais](#redes-sociais)
 - [Licença](#licença)
 
 ---
@@ -154,6 +155,15 @@ O Restaure é desenvolvido por:
 | **Mychelle Novais** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/mychelle-novais/) |
 
 **Contato:** [restaurear@gmail.com](mailto:restaurear@gmail.com)
+
+---
+
+## Redes sociais
+
+Acompanhe o Restaure:
+
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-restaure__br-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/company/restaure_br)
+[![Instagram](https://img.shields.io/badge/Instagram-@restaure__br-E4405F?logo=instagram&logoColor=white)](https://www.instagram.com/restaure_br)
 
 ---
 

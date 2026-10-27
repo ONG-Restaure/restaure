@@ -1,0 +1,20 @@
+[general]
+name=Restaure
+qgisMinimumVersion=3.16
+qgisMaximumVersion=4.99
+description=Ferramentas para otimização de projetos de georreferenciamento e regularização ambiental.
+version=1.0.0
+about=Ferramentas para o QGIS que agilizam projetos de georreferenciamento de imóveis rurais e de regularização ambiental no Brasil, em conformidade com as normas técnicas do INCRA e com o Código Florestal (Lei nº 12.651/2012).
+author=Dra. Ranieli dos Anjos de Souza, Dr. Valdir Moura, Maik Rodrigues e Mychelle Novais
+email=restaurear@gmail.com
+category=Analysis
+icon=icon.png
+tags=georreferenciamento,regularização ambiental,INCRA,código florestal,APP,área de preservação permanente,nascentes,hidrografia,drenagem
+hasProcessingProvider=yes
+experimental=True
+deprecated=False
+
+repository=https://github.com/ONG-Restaure/restaure
+tracker=https://github.com/ONG-Restaure/restaure/issues
+homepage=https://github.com/ONG-Restaure/restaure
+changelog= 1.0.0 - First public release

@@ -37,20 +37,26 @@ import urllib.request
 import numpy as np
 from osgeo import gdal
 
-from qgis.PyQt.QtCore import QUrl, QVariant
+from qgis.PyQt.QtCore import QUrl
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import (
-    QgsApplication, QgsProcessing, QgsProcessingAlgorithm, QgsProcessingException,
+    QgsApplication, QgsProcessingAlgorithm, QgsProcessingException,
     QgsProcessingParameterFeatureSource, QgsProcessingParameterRasterLayer,
     QgsProcessingParameterField, QgsProcessingParameterNumber,
     QgsProcessingParameterBoolean, QgsProcessingParameterFeatureSink, QgsProcessingUtils,
     QgsProcessingParameterFile,
     QgsCategorizedSymbolRenderer, QgsFillSymbol, QgsProcessingLayerPostProcessorInterface,
     QgsGraduatedSymbolRenderer, QgsLayerTreeLayer, QgsProject, QgsSingleSymbolRenderer, QgsRendererCategory, QgsRendererRange,
-    QgsDistanceArea, QgsFields, QgsField, QgsFeature, QgsFeatureSink, QgsGeometry, QgsMapLayer,
-    QgsVectorLayer, QgsWkbTypes, QgsProperty,
+    QgsDistanceArea, QgsFields, QgsField, QgsFeature, QgsGeometry, QgsMapLayer,
+    QgsVectorLayer, QgsProperty,
 )
 import processing
+
+from .compat import (
+    ARQUIVO_UNICO, FILTRO_CAMPO_NUMERICO, FILTRO_CAMPO_TEXTO, FONTE_LINHA,
+    FONTE_PONTO, FONTE_POLIGONO, GEOM_POLIGONO, INSERCAO_RAPIDA, NUMERO_DECIMAL,
+    NUMERO_INTEIRO, PARAM_AVANCADO, TIPO_DECIMAL, TIPO_TEXTO, WKB_MULTIPOLIGONO,
+)
 
 NOMES_CLASSES = {
     1: "formacao_florestal",
@@ -518,38 +524,38 @@ class GerarAPP(QgsProcessingAlgorithm):
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "HIDROGRAFIA", "Hidrografia (linhas)", [QgsProcessing.TypeVectorLine]))
+            "HIDROGRAFIA", "Hidrografia (linhas)", [FONTE_LINHA]))
         self.addParameter(QgsProcessingParameterField(
             "CAMPO_LARGURA", "Campo com a largura do curso d'água (m)",
             parentLayerParameterName="HIDROGRAFIA",
-            type=QgsProcessingParameterField.Numeric, optional=True))
+            type=FILTRO_CAMPO_NUMERICO, optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
             "LAGOS_LAGOAS", "Rios / lagos / lagoas em polígono",
-            [QgsProcessing.TypeVectorPolygon], optional=True))
+            [FONTE_POLIGONO], optional=True))
         self.addParameter(QgsProcessingParameterField(
             "CAMPO_TIPO_POLIGONO", "Campo delimitador de hidrografia",
             parentLayerParameterName="LAGOS_LAGOAS",
-            type=QgsProcessingParameterField.String, optional=True))
+            type=FILTRO_CAMPO_TEXTO, optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "NASCENTES", "Nascentes (pontos)", [QgsProcessing.TypeVectorPoint],
+            "NASCENTES", "Nascentes (pontos)", [FONTE_PONTO],
             optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "LOTES", "Lotes / imóveis (polígonos)", [QgsProcessing.TypeVectorPolygon]))
+            "LOTES", "Lotes / imóveis (polígonos)", [FONTE_POLIGONO]))
         self.addParameter(QgsProcessingParameterField(
             "CAMPO_MUNICIPIO", "Campo com o nome do município",
-            parentLayerParameterName="LOTES", type=QgsProcessingParameterField.String))
+            parentLayerParameterName="LOTES", type=FILTRO_CAMPO_TEXTO))
         self.addParameter(QgsProcessingParameterFile(
             "TABELA_MODULOS", "Tabela de módulos fiscais (PDF do INCRA ou CSV)",
-            behavior=QgsProcessingParameterFile.File, optional=True,
+            behavior=ARQUIVO_UNICO, optional=True,
             fileFilter="Tabela de módulos fiscais (*.pdf *.csv)"))
         self.addParameter(QgsProcessingParameterRasterLayer(
             "RASTER_CLASSES", "Raster de classes"))
         self.addParameter(QgsProcessingParameterNumber(
             "AREA_MIN_ILHA", "Eliminar ilhas menores que (ha) [0 = não filtra]",
-            QgsProcessingParameterNumber.Double, 0.0, minValue=0))
+            NUMERO_DECIMAL, 0.0, minValue=0))
         self.addParameter(QgsProcessingParameterNumber(
             "SUAVIZACAO", "Suavizar bordas da zona consolidada (iterações) [0 = não suaviza]",
-            QgsProcessingParameterNumber.Integer, 0, minValue=0, maxValue=5))
+            NUMERO_INTEIRO, 0, minValue=0, maxValue=5))
         self.addParameter(QgsProcessingParameterBoolean(
             "AREA_PELO_VETOR",
             "Calcular áreas pelo vetor",
@@ -563,31 +569,31 @@ class GerarAPP(QgsProcessingAlgorithm):
             ("CLASSE_REGENERACAO", "Código da classe: floresta em regeneração", 5),
         ]:
             p = QgsProcessingParameterNumber(
-                nome, rotulo, QgsProcessingParameterNumber.Integer, padrao, minValue=0)
-            p.setFlags(p.flags() | p.FlagAdvanced)
+                nome, rotulo, NUMERO_INTEIRO, padrao, minValue=0)
+            p.setFlags(p.flags() | PARAM_AVANCADO)
             self.addParameter(p)
 
         p = QgsProcessingParameterNumber(
             "RAIO_NASCENTE_CHEIO", "Raio de APP de nascente, largura cheia (m)",
-            QgsProcessingParameterNumber.Double, 50.0, minValue=0)
-        p.setFlags(p.flags() | p.FlagAdvanced)
+            NUMERO_DECIMAL, 50.0, minValue=0)
+        p.setFlags(p.flags() | PARAM_AVANCADO)
         self.addParameter(p)
 
         p = QgsProcessingParameterNumber(
             "RAIO_NASCENTE_ESCADINHA", "Raio de APP de nascente, escadinha (m)",
-            QgsProcessingParameterNumber.Double, 15.0, minValue=0)
-        p.setFlags(p.flags() | p.FlagAdvanced)
+            NUMERO_DECIMAL, 15.0, minValue=0)
+        p.setFlags(p.flags() | PARAM_AVANCADO)
         self.addParameter(p)
 
         self.addParameter(QgsProcessingParameterFeatureSink(
             "APP", "APP por lote (classes dentro da APP e checagem do Art. 61-B)",
-            QgsProcessing.TypeVectorPolygon))
+            FONTE_POLIGONO))
         self.addParameter(QgsProcessingParameterFeatureSink(
             "CLASSES_POR_LOTE", "Classes do lote inteiro",
-            QgsProcessing.TypeVectorPolygon))
+            FONTE_POLIGONO))
         self.addParameter(QgsProcessingParameterFeatureSink(
             "APP_CHEIA", "APP cheia (Art. 4º, sem escadinha, só para visualização)",
-            QgsProcessing.TypeVectorPolygon, optional=True, createByDefault=True))
+            FONTE_POLIGONO, optional=True, createByDefault=True))
 
     # -----------------------------------------------------------------------
 
@@ -807,8 +813,8 @@ class GerarAPP(QgsProcessingAlgorithm):
         campos_cheia = QgsFields()
         if idx_id_lote >= 0:
             campos_cheia.append(lotes_layer.fields().field(idx_id_lote))
-        campos_cheia.append(QgsField("app_cheia_ha", QVariant.Double))
-        campos_cheia.append(QgsField("reducao_escadinha_ha", QVariant.Double))
+        campos_cheia.append(QgsField("app_cheia_ha", TIPO_DECIMAL))
+        campos_cheia.append(QgsField("reducao_escadinha_ha", TIPO_DECIMAL))
         feicoes_cheia = []
         for feat in lotes_layer.getFeatures():
             if feedback.isCanceled():
@@ -934,7 +940,7 @@ class GerarAPP(QgsProcessingAlgorithm):
                 inter = uniao.intersection(lote_geom)
                 if inter is not None and not inter.isEmpty():
                     partes = [p for p in inter.asGeometryCollection()
-                              if p.type() == QgsWkbTypes.PolygonGeometry]
+                              if p.type() == GEOM_POLIGONO]
                     if not lotes.sourceCrs().isGeographic():
                         # lascas de APP menores que 10 m² (0,001 ha) vêm de
                         # encontros de limites e não são APP de verdade
@@ -975,9 +981,9 @@ class GerarAPP(QgsProcessingAlgorithm):
         # Criada pelo mecanismo do Processing (e não como objeto Python solto)
         # para que a camada continue sob posse do contexto, como as demais.
         sink_tmp, id_app_tmp = QgsProcessingUtils.createFeatureSink(
-            "memory:app_por_lote", context, campos_lote, QgsWkbTypes.MultiPolygon, crs)
+            "memory:app_por_lote", context, campos_lote, WKB_MULTIPOLIGONO, crs)
         for nova in feicoes_app:
-            sink_tmp.addFeature(nova, QgsFeatureSink.FastInsert)
+            sink_tmp.addFeature(nova, INSERCAO_RAPIDA)
         del sink_tmp  # garante a gravação antes de ler a camada
         app_por_lote = self._camada(id_app_tmp, context)
 
@@ -1009,17 +1015,17 @@ class GerarAPP(QgsProcessingAlgorithm):
         else:
             campos_t_app, feicoes_t_app = QgsFields(), []
         sink_app, id_app = self.parameterAsSink(
-            parameters, "APP", context, campos_t_app, QgsWkbTypes.MultiPolygon, crs)
+            parameters, "APP", context, campos_t_app, WKB_MULTIPOLIGONO, crs)
         for f in feicoes_t_app:
-            sink_app.addFeature(f, QgsFeatureSink.FastInsert)
+            sink_app.addFeature(f, INSERCAO_RAPIDA)
 
         # 2) Classes do lote INTEIRO (contorno completo de cada lote)
         campos_t_lote, feicoes_t_lote = tabela(lotes_com_fid, "lote")
         sink_lote, id_lote = self.parameterAsSink(
             parameters, "CLASSES_POR_LOTE", context, campos_t_lote,
-            QgsWkbTypes.MultiPolygon, crs)
+            WKB_MULTIPOLIGONO, crs)
         for f in feicoes_t_lote:
-            sink_lote.addFeature(f, QgsFeatureSink.FastInsert)
+            sink_lote.addFeature(f, INSERCAO_RAPIDA)
 
         # 3) APP cheia (opcional): só para visualização
         id_cheia = None
@@ -1027,13 +1033,13 @@ class GerarAPP(QgsProcessingAlgorithm):
             try:
                 sink_cheia, id_cheia = self.parameterAsSink(
                     parameters, "APP_CHEIA", context, campos_cheia,
-                    QgsWkbTypes.MultiPolygon, crs)
+                    WKB_MULTIPOLIGONO, crs)
             except Exception as e:
                 sink_cheia, id_cheia = None, None
                 feedback.pushWarning(f"Não consegui criar a camada de APP cheia: {e}")
             if sink_cheia is not None:
                 for f in feicoes_cheia:
-                    sink_cheia.addFeature(f, QgsFeatureSink.FastInsert)
+                    sink_cheia.addFeature(f, INSERCAO_RAPIDA)
             else:
                 id_cheia = None
 
@@ -1269,22 +1275,22 @@ class GerarAPP(QgsProcessingAlgorithm):
         campos = QgsFields()
         for i in idx_manter:
             campos.append(campos_base.field(i))
-        campos.append(QgsField(f"{prefixo}_area_ha", QVariant.Double))
+        campos.append(QgsField(f"{prefixo}_area_ha", TIPO_DECIMAL))
         for n in classes:
             nome = NOMES_CLASSES.get(n, f"classe{n}")
-            campos.append(QgsField(f"{prefixo}_{nome}_ha", QVariant.Double))
-            campos.append(QgsField(f"{prefixo}_{nome}_pct", QVariant.Double))
-        campos.append(QgsField(f"{prefixo}_sem_classe_ha", QVariant.Double))
-        campos.append(QgsField(f"{prefixo}_sem_classe_pct", QVariant.Double))
-        for nome, tipo in (("modulos_fiscais", QVariant.Double),
-                           ("pequena_propriedade", QVariant.String),
-                           ("teto_61b_ha", QVariant.Double)):
+            campos.append(QgsField(f"{prefixo}_{nome}_ha", TIPO_DECIMAL))
+            campos.append(QgsField(f"{prefixo}_{nome}_pct", TIPO_DECIMAL))
+        campos.append(QgsField(f"{prefixo}_sem_classe_ha", TIPO_DECIMAL))
+        campos.append(QgsField(f"{prefixo}_sem_classe_pct", TIPO_DECIMAL))
+        for nome, tipo in (("modulos_fiscais", TIPO_DECIMAL),
+                           ("pequena_propriedade", TIPO_TEXTO),
+                           ("teto_61b_ha", TIPO_DECIMAL)):
             campos.append(QgsField(nome, tipo))
         if prefixo == "app":
             # checagem do Art. 61-B (só faz sentido dentro da APP)
-            campos.append(QgsField("recompor_consolidada_ha", QVariant.Double))
-            campos.append(QgsField("excede_61b", QVariant.String))
-            campos.append(QgsField("excesso_61b_ha", QVariant.Double))
+            campos.append(QgsField("recompor_consolidada_ha", TIPO_DECIMAL))
+            campos.append(QgsField("excede_61b", TIPO_TEXTO))
+            campos.append(QgsField("excesso_61b_ha", TIPO_DECIMAL))
 
         idx_fid = campos_base.indexFromName("fid_lote")
         feicoes = []
@@ -1354,7 +1360,7 @@ class GerarAPP(QgsProcessingAlgorithm):
         if inter is None or inter.isEmpty():
             return None
         partes = [p for p in inter.asGeometryCollection()
-                  if p.type() == QgsWkbTypes.PolygonGeometry]
+                  if p.type() == GEOM_POLIGONO]
         if not geografico:
             partes = [p for p in partes if p.area() >= AREA_MIN_FRAGMENTO_M2]
         return QgsGeometry.collectGeometry(partes) if partes else None
@@ -1415,17 +1421,17 @@ class GerarAPP(QgsProcessingAlgorithm):
             campos.append(campos_base.field(i))
         for n in classes:
             nome = NOMES_CLASSES.get(n, f"classe{n}")
-            campos.append(QgsField(f"{prefixo}_{nome}_ha", QVariant.Double))
-            campos.append(QgsField(f"{prefixo}_{nome}_pct", QVariant.Double))
-        for nome, tipo in (("modulos_fiscais", QVariant.Double),
-                           ("pequena_propriedade", QVariant.String),
-                           ("teto_61b_ha", QVariant.Double)):
+            campos.append(QgsField(f"{prefixo}_{nome}_ha", TIPO_DECIMAL))
+            campos.append(QgsField(f"{prefixo}_{nome}_pct", TIPO_DECIMAL))
+        for nome, tipo in (("modulos_fiscais", TIPO_DECIMAL),
+                           ("pequena_propriedade", TIPO_TEXTO),
+                           ("teto_61b_ha", TIPO_DECIMAL)):
             campos.append(QgsField(nome, tipo))
         if prefixo == "app":
             # checagem do Art. 61-B (só faz sentido dentro da APP)
-            campos.append(QgsField("recompor_consolidada_ha", QVariant.Double))
-            campos.append(QgsField("excede_61b", QVariant.String))
-            campos.append(QgsField("excesso_61b_ha", QVariant.Double))
+            campos.append(QgsField("recompor_consolidada_ha", TIPO_DECIMAL))
+            campos.append(QgsField("excede_61b", TIPO_TEXTO))
+            campos.append(QgsField("excesso_61b_ha", TIPO_DECIMAL))
 
         idx_fid = campos_base.indexFromName("fid_lote")
         idx_cont = {n: campos_base.indexFromName(f"{prefixo}_contagem_classe{n}")

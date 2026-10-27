@@ -1,15 +1,20 @@
 # -*- coding: utf-8 -*-
 import os
-from qgis.PyQt.QtCore import QVariant, QUrl
+from qgis.PyQt.QtCore import QUrl
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import (
     QgsProject, QgsProcessingLayerPostProcessorInterface,
-    QgsProcessing, QgsProcessingAlgorithm, QgsProcessingException,
+    QgsProcessingAlgorithm, QgsProcessingException,
     QgsProcessingParameterFeatureSource, QgsProcessingParameterRasterLayer,
     QgsProcessingParameterNumber, QgsProcessingParameterEnum,
     QgsProcessingParameterCrs, QgsProcessingParameterFeatureSink,
-    QgsFeatureSink, QgsFields, QgsField, QgsFeature, QgsGeometry,
-    QgsSpatialIndex, QgsRectangle, QgsWkbTypes, QgsCoordinateTransform,
+    QgsFields, QgsField, QgsFeature, QgsGeometry,
+    QgsSpatialIndex, QgsRectangle, QgsCoordinateTransform,
+)
+
+from .compat import (
+    FONTE_LINHA, FONTE_PONTO, FONTE_POLIGONO, INSERCAO_RAPIDA, NUMERO_DECIMAL,
+    TIPO_DECIMAL, TIPO_INTEIRO, TIPO_TEXTO, WKB_PONTO, geometrias_iguais,
 )
 
 MODOS = ["Toda ponta solta é nascente",
@@ -71,22 +76,22 @@ class GerarNascentes(QgsProcessingAlgorithm):
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "LINHAS", "Hidrografia (linhas)", [QgsProcessing.TypeVectorLine]))
+            "LINHAS", "Hidrografia (linhas)", [FONTE_LINHA]))
         self.addParameter(QgsProcessingParameterFeatureSource(
             "POLIGONOS", "Lagos / represas (polígonos)",
-            [QgsProcessing.TypeVectorPolygon], optional=True))
+            [FONTE_POLIGONO], optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
             "AREA", "Área de abrangência (polígonos)",
-            [QgsProcessing.TypeVectorPolygon], optional=True))
+            [FONTE_POLIGONO], optional=True))
         self.addParameter(QgsProcessingParameterNumber(
             "MARGEM", "Margem da área de abrangência (m) – inclui pontas em estradas e divisas",
-            QgsProcessingParameterNumber.Double, 20.0, minValue=0))
+            NUMERO_DECIMAL, 20.0, minValue=0))
         self.addParameter(QgsProcessingParameterNumber(
             "TOLERANCIA", "Tolerância de conexão (m)",
-            QgsProcessingParameterNumber.Double, 1.0, minValue=0))
+            NUMERO_DECIMAL, 1.0, minValue=0))
         self.addParameter(QgsProcessingParameterNumber(
             "SUSPEITA", "Distância para suspeita de desconexão (m)",
-            QgsProcessingParameterNumber.Double, 20.0, minValue=0))
+            NUMERO_DECIMAL, 20.0, minValue=0))
         self.addParameter(QgsProcessingParameterEnum(
             "MODO", "Como tratar a foz", MODOS, defaultValue=0))
         self.addParameter(QgsProcessingParameterRasterLayer(
@@ -94,11 +99,11 @@ class GerarNascentes(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterCrs(
             "CRS", "SRC métrico para os cálculos", "EPSG:31980"))
         self.addParameter(QgsProcessingParameterFeatureSink(
-            "NASCENTES", "Nascentes", QgsProcessing.TypeVectorPoint))
+            "NASCENTES", "Nascentes", FONTE_PONTO))
         self.addParameter(QgsProcessingParameterFeatureSink(
-            "SUSPEITOS", "Suspeitos de desconexão", QgsProcessing.TypeVectorPoint))
+            "SUSPEITOS", "Suspeitos de desconexão", FONTE_PONTO))
         self.addParameter(QgsProcessingParameterFeatureSink(
-            "FOZES", "Possíveis fozes (para conferência)", QgsProcessing.TypeVectorPoint))
+            "FOZES", "Possíveis fozes (para conferência)", FONTE_PONTO))
 
     def processAlgorithm(self, parameters, context, feedback):
         linhas = self.parameterAsSource(parameters, "LINHAS", context)
@@ -141,7 +146,8 @@ class GerarNascentes(QgsProcessingAlgorithm):
                 if len(pl) < 2:
                     continue
                 gp = QgsGeometry.fromPolylineXY(pl)
-                if any(partes[j].isGeosEqual(gp) for j in idx.intersects(gp.boundingBox())):
+                if any(geometrias_iguais(partes[j], gp)
+                       for j in idx.intersects(gp.boundingBox())):
                     duplicadas += 1
                     continue
                 i = len(partes)
@@ -203,18 +209,18 @@ class GerarNascentes(QgsProcessingAlgorithm):
 
         # 4. Saídas
         campos_n = QgsFields()
-        campos_n.append(QgsField("linha_id", QVariant.Int))
-        campos_n.append(QgsField("posicao", QVariant.String))
+        campos_n.append(QgsField("linha_id", TIPO_INTEIRO))
+        campos_n.append(QgsField("posicao", TIPO_TEXTO))
         campos_s = QgsFields(campos_n)
-        campos_s.append(QgsField("dist", QVariant.Double))
-        campos_n.append(QgsField("cota", QVariant.Double))
-        campos_n.append(QgsField("possivel_foz", QVariant.String))
+        campos_s.append(QgsField("dist", TIPO_DECIMAL))
+        campos_n.append(QgsField("cota", TIPO_DECIMAL))
+        campos_n.append(QgsField("possivel_foz", TIPO_TEXTO))
         sink_n, id_n = self.parameterAsSink(parameters, "NASCENTES", context,
-                                            campos_n, QgsWkbTypes.Point, crs)
+                                            campos_n, WKB_PONTO, crs)
         sink_s, id_s = self.parameterAsSink(parameters, "SUSPEITOS", context,
-                                            campos_s, QgsWkbTypes.Point, crs)
+                                            campos_s, WKB_PONTO, crs)
         sink_f, id_f = self.parameterAsSink(parameters, "FOZES", context,
-                                            campos_n, QgsWkbTypes.Point, crs)
+                                            campos_n, WKB_PONTO, crs)
 
         cont = {"conectadas": 0, "poligono": 0, "fora_area": 0, "suspeitas": 0}
         total = len(partes) or 1
@@ -247,7 +253,7 @@ class GerarNascentes(QgsProcessingAlgorithm):
                     f = QgsFeature(campos_s)
                     f.setGeometry(QgsGeometry.fromPointXY(p))
                     f.setAttributes([origem[i], pos, round(d, 3)])
-                    sink_s.addFeature(f, QgsFeatureSink.FastInsert)
+                    sink_s.addFeature(f, INSERCAO_RAPIDA)
                     cont["suspeitas"] += 1
                     livres.append((p, i, pos, False))
                     continue
@@ -316,11 +322,11 @@ class GerarNascentes(QgsProcessingAlgorithm):
             e_foz = k in foz
             f.setAttributes([origem[i], pos, cotas.get(k), "sim" if e_foz else "nao"])
             if e_foz and sink_f is not None:
-                sink_f.addFeature(f, QgsFeatureSink.FastInsert)
+                sink_f.addFeature(f, INSERCAO_RAPIDA)
             # no modo direção a ponta final é excluída; no modo MDE/MDS ela fica
             if e_foz and modo == 1:
                 continue
-            sink_n.addFeature(f, QgsFeatureSink.FastInsert)
+            sink_n.addFeature(f, INSERCAO_RAPIDA)
             n += 1
         feedback.setProgress(100)
 

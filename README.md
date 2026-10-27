@@ -1,6 +1,6 @@
 # Restaure — Plugin para QGIS
 
-![QGIS](https://img.shields.io/badge/QGIS-3.x-589632?logo=qgis&logoColor=white)
+![QGIS](https://img.shields.io/badge/QGIS-3.16%20a%204.x-589632?logo=qgis&logoColor=white)
 ![Plataforma](https://img.shields.io/badge/plataforma-Processing-blue)
 [![Licença: GPL v3](https://img.shields.io/badge/licença-GPL--3.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 

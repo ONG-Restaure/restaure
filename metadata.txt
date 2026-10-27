@@ -11,6 +11,7 @@ category=Analysis
 icon=icon.png
 tags=georeferencing,environmental compliance,incra,forest code,app,permanent preservation area,springs,hydrography,drainage
 hasProcessingProvider=yes
+supportsQt6=True
 experimental=True
 deprecated=False
 

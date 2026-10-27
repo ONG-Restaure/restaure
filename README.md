@@ -21,7 +21,7 @@ O Restaure reúne algoritmos de geoprocessamento na **Caixa de Ferramentas de Pr
 - [Fluxo de trabalho sugerido](#fluxo-de-trabalho-sugerido)
 - [Aviso importante](#aviso-importante)
 - [Autores e contato](#autores-e-contato)
-- [Redes sociais](#redes-sociais)
+- [Redes sociais e suporte](#redes-sociais-e-suporte)
 - [Licença](#licença)
 
 ---
@@ -154,16 +154,28 @@ O Restaure é desenvolvido por:
 | **Maik Rodrigues** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/maikrodriguess/) |
 | **Mychelle Novais** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/mychelle-novais/) |
 
-**Contato:** [restaurear@gmail.com](mailto:restaurear@gmail.com)
+
 
 ---
 
-## Redes sociais
+## Redes sociais e suporte
 
-Acompanhe o Restaure:
+Acompanhe o Restaure nas redes sociais para ficar por dentro de novidades, lançamentos de ferramentas e conteúdos sobre georreferenciamento e regularização ambiental:
 
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-restaure__br-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/company/restaure_br)
 [![Instagram](https://img.shields.io/badge/Instagram-@restaure__br-E4405F?logo=instagram&logoColor=white)](https://www.instagram.com/restaure_br)
+
+**Contato** — Para dúvidas, parcerias ou outros assuntos, envie um e-mail:
+
+[![E-mail](https://img.shields.io/badge/E--mail-restaurear@gmail.com-EA4335?logo=gmail&logoColor=white)](mailto:restaurear@gmail.com)
+
+**Treinamentos** — Quer capacitar você ou sua equipe no uso das ferramentas do Restaure? Fale com a gente pelo WhatsApp:
+
+[![WhatsApp](https://img.shields.io/badge/WhatsApp-Treinamentos-25D366?logo=whatsapp&logoColor=white)](https://wa.me/5569993512657)
+
+**Erros e sugestões** — Encontrou um problema ou tem uma ideia de melhoria? Abra uma *issue* no GitHub:
+
+[![GitHub Issues](https://img.shields.io/badge/GitHub-Erros%20e%20sugestões-181717?logo=github&logoColor=white)](https://github.com/ONG-Restaure/restaure/issues)
 
 ---
 

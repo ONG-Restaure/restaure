@@ -1,3 +1,5 @@
+   <p align="center"><img src="docs/images/logo.png" width="200" alt="Restaure"></p>
+
 # Restaure — Plugin para QGIS
 
 ![QGIS](https://img.shields.io/badge/QGIS-3.16%20a%204.x-589632?logo=qgis&logoColor=white)

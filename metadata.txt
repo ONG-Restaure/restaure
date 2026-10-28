@@ -17,5 +17,5 @@ deprecated=False
 
 repository=https://github.com/ONG-Restaure/restaure
 tracker=https://github.com/ONG-Restaure/restaure/issues
-homepage=https://github.com/ONG-Restaure/restaure
+homepage=https://github.com/ONG-Restaure/restaure/wiki
 changelog= 1.0.0 - First public release

@@ -56,7 +56,7 @@ class GerarNascentes(QgsProcessingAlgorithm):
     def shortHelpString(self):
         # painel de ajuda do formulário: aceita HTML; a logo é o icon.png do plugin
         url_logo = QUrl.fromLocalFile(
-            os.path.join(os.path.dirname(__file__), "icon.png")).toString()
+            os.path.join(os.path.dirname(__file__), "docs", "images", "icon.png")).toString()
         return (
             f'<p><img src="{url_logo}" width="96" height="96"></p>'
             "<p>Gera nascentes automaticamente nas cabeceiras de drenagem, considerando "
@@ -69,7 +69,7 @@ class GerarNascentes(QgsProcessingAlgorithm):
         )
 
     def icon(self):
-        return QIcon(os.path.join(os.path.dirname(__file__), "icon_nascentes.png"))
+        return QIcon(os.path.join(os.path.dirname(__file__), "docs", "images", "icon_nascentes.png"))
 
     def createInstance(self):
         return GerarNascentes()

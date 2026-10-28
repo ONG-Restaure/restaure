@@ -21,4 +21,4 @@ class RestaureProvider(QgsProcessingProvider):
         return self.name()
 
     def icon(self):
-        return QIcon(os.path.join(os.path.dirname(__file__), "icon.png"))
+        return QIcon(os.path.join(os.path.dirname(__file__), "docs", "images", "icon.png"))

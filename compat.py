@@ -4,7 +4,11 @@
 No QGIS 4 os enums antigos (QVariant.Double, QgsWkbTypes.Point,
 QgsProcessing.TypeVectorLine...) deixam de existir. Aqui usamos o nome novo
 quando a versão do QGIS já o oferece e caímos no antigo nas versões 3.x mais
-velhas, para o plugin rodar do QGIS 3.16 ao 4.x."""
+velhas, para o plugin rodar do QGIS 3.16 ao 4.x.
+
+Os nomes antigos são lidos com getattr porque o verificador de Qt6 do
+repositório de plugins analisa o código-fonte e acusa o acesso direto mesmo
+dentro do ramo que só roda no QGIS 3."""
 
 from qgis.core import (
     Qgis, QgsFeatureSink, QgsProcessing, QgsProcessingParameterDefinition,
@@ -18,9 +22,9 @@ if hasattr(Qgis, "WkbType"):
     WKB_MULTIPOLIGONO = Qgis.WkbType.MultiPolygon
     GEOM_POLIGONO = Qgis.GeometryType.Polygon
 else:
-    WKB_PONTO = QgsWkbTypes.Point
-    WKB_MULTIPOLIGONO = QgsWkbTypes.MultiPolygon
-    GEOM_POLIGONO = QgsWkbTypes.PolygonGeometry
+    WKB_PONTO = getattr(QgsWkbTypes, "Point")
+    WKB_MULTIPOLIGONO = getattr(QgsWkbTypes, "MultiPolygon")
+    GEOM_POLIGONO = getattr(QgsWkbTypes, "PolygonGeometry")
 
 # enums do Processing (movidos para Qgis.* no QGIS 3.36)
 if hasattr(Qgis, "ProcessingSourceType"):
@@ -34,15 +38,15 @@ if hasattr(Qgis, "ProcessingSourceType"):
     ARQUIVO_UNICO = Qgis.ProcessingFileParameterBehavior.File
     PARAM_AVANCADO = Qgis.ProcessingParameterFlag.Advanced
 else:
-    FONTE_LINHA = QgsProcessing.TypeVectorLine
-    FONTE_PONTO = QgsProcessing.TypeVectorPoint
-    FONTE_POLIGONO = QgsProcessing.TypeVectorPolygon
-    NUMERO_INTEIRO = QgsProcessingParameterNumber.Integer
-    NUMERO_DECIMAL = QgsProcessingParameterNumber.Double
-    FILTRO_CAMPO_NUMERICO = QgsProcessingParameterField.Numeric
-    FILTRO_CAMPO_TEXTO = QgsProcessingParameterField.String
-    ARQUIVO_UNICO = QgsProcessingParameterFile.File
-    PARAM_AVANCADO = QgsProcessingParameterDefinition.FlagAdvanced
+    FONTE_LINHA = getattr(QgsProcessing, "TypeVectorLine")
+    FONTE_PONTO = getattr(QgsProcessing, "TypeVectorPoint")
+    FONTE_POLIGONO = getattr(QgsProcessing, "TypeVectorPolygon")
+    NUMERO_INTEIRO = getattr(QgsProcessingParameterNumber, "Integer")
+    NUMERO_DECIMAL = getattr(QgsProcessingParameterNumber, "Double")
+    FILTRO_CAMPO_NUMERICO = getattr(QgsProcessingParameterField, "Numeric")
+    FILTRO_CAMPO_TEXTO = getattr(QgsProcessingParameterField, "String")
+    ARQUIVO_UNICO = getattr(QgsProcessingParameterFile, "File")
+    PARAM_AVANCADO = getattr(QgsProcessingParameterDefinition, "FlagAdvanced")
 
 # tipos de atributo: QgsField aceita QMetaType a partir do QGIS 3.38;
 # antes disso só QVariant.Type (que não existe no Qt6)
@@ -60,7 +64,7 @@ else:
 try:
     INSERCAO_RAPIDA = QgsFeatureSink.Flag.FastInsert
 except AttributeError:
-    INSERCAO_RAPIDA = QgsFeatureSink.FastInsert
+    INSERCAO_RAPIDA = getattr(QgsFeatureSink, "FastInsert")
 
 
 def geometrias_iguais(a, b):

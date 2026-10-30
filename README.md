@@ -32,8 +32,8 @@ O Restaure reúne algoritmos de geoprocessamento na **Caixa de Ferramentas de Pr
 
 | Ferramenta | Finalidade | Localização na Caixa de Ferramentas |
 |---|---|---|
-| [Gerador de Nascentes](#gerador-de-nascentes) | Identifica possíveis nascentes a partir de redes de drenagem e aponta suspeitas de desconexão e possíveis fozes. | Restaure → Gerador de Nascentes |
-| [Gerador de APP](#gerador-de-app) | Delimita Áreas de Preservação Permanente (APP) e analisa classes ambientais por lote. | Restaure → Gerador de APP |
+| [Gerador de Nascentes](#gerador-de-nascentes) | Identifica possíveis nascentes a partir de redes de drenagem e aponta suspeitas de desconexão e possíveis fozes. | Restaure → Regularização Ambiental → Gerador de nascentes |
+| [Gerador de APP](#gerador-de-app) | Delimita Áreas de Preservação Permanente (APP) e analisa classes ambientais por lote. | Restaure → Regularização Ambiental → Gerador de APP |
 
 > Novas ferramentas serão acrescentadas a esta tabela conforme forem publicadas.
 
@@ -43,7 +43,7 @@ O Restaure reúne algoritmos de geoprocessamento na **Caixa de Ferramentas de Pr
 
 1. No QGIS, abra **Complementos → Gerenciar e Instalar Complementos**, procure por **Restaure** e clique em **Instalar**.
 2. Abra a **Caixa de Ferramentas de Processamento** (`Ctrl+Alt+T`).
-3. Localize o grupo **Restaure** e a ferramenta desejada.
+3. Localize o provedor **Restaure**, abra o grupo **Regularização Ambiental** e escolha a ferramenta desejada
 4. Selecione as camadas de entrada, ajuste os parâmetros e execute o algoritmo.
 
 > Na primeira execução de algumas ferramentas (como o Gerador de APP) pode ser necessária conexão com a internet para obter recursos auxiliares que ainda não estejam disponíveis localmente.
@@ -78,12 +78,12 @@ Algoritmo que auxilia na delimitação de **Áreas de Preservação Permanente (
 
 | Dado | Obrigatório | Observação |
 |---|---|---|
-| Camada de lotes rurais | Sim | Limites dos imóveis/lotes. |
+| Camada de lotes rurais | Sim | Limites dos imóveis/lotes. Deve ter um campo de texto com o **nome do município**, escrito igual ao da tabela do INCRA. |
 | Hidrografia em linhas | Sim | Rios e córregos. |
-| Hidrografia em polígonos | Opcional | Lagos, lagoas e corpos d'água. |
+| Hidrografia em polígonos | Opcional | Rios, lagos e lagoas em polígono. Para diferenciá-los, informe o campo delimitador, cujos valores devem ser `rio` ou `lago`. |
 | Camada de nascentes | Opcional | Quando disponível (pode ser gerada pelo Gerador de Nascentes). |
 | Raster de classes ambientais | Sim | Raster temático usado na análise por classe. |
-| Tabela de módulos fiscais do INCRA | Sim | Obtida pelo plugin ou fornecida pelo usuário. |
+| Tabela de módulos fiscais do INCRA | Opcional | Obtida pelo plugin ou fornecida pelo usuário. |
 
 **Resultados**
 

@@ -6,9 +6,9 @@
 ![Plataforma](https://img.shields.io/badge/plataforma-Processing-blue)
 [![Licença: GPL v3](https://img.shields.io/badge/licença-GPL--3.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-Ferramentas para o QGIS que agilizam projetos de **georreferenciamento de imóveis rurais** e de **regularização ambiental** no Brasil, em conformidade com as normas técnicas do **INCRA** e com o **Código Florestal (Lei nº 12.651/2012)**.
+Plugin QGIS para processamento de dados de georreferenciamento de imóveis rurais, conforme normas do Manual Técnico para Georreferenciamento de Imóveis Rurais - 2ª edição do INCRA, e regularização ambiental segundo Código Florestal (Lei 12.651/20212).
 
-O Restaure reúne algoritmos de geoprocessamento na **Caixa de Ferramentas de Processamento** do QGIS, no grupo **Restaure**, e foi pensado para crescer: novas ferramentas serão adicionadas ao longo do tempo.
+O Plugin Restaure reúne algoritmos de geoprocessamento na **Caixa de Ferramentas de Processamento** do QGIS, no grupo **Restaure**, e foi pensado para crescer: novas ferramentas serão adicionadas ao longo do tempo.
 
 ---
 
@@ -139,7 +139,7 @@ As ferramentas podem ser usadas de forma independente, mas se complementam:
 
 ## Aviso importante
 
-As ferramentas do Restaure são de **apoio técnico**. Elas **não substituem** a avaliação de profissional habilitado, a validação técnica dos dados de entrada nem a análise do órgão ambiental ou fundiário competente. Verifique sempre dados, parâmetros e legislação vigente (normas técnicas do INCRA, Lei nº 12.651/2012 e regras estaduais do PRA) antes de utilizar os resultados.
+As ferramentas do Plugin Restaure são de **apoio técnico**. Elas **não substituem** a avaliação de profissional habilitado, a validação técnica dos dados de entrada nem a análise do órgão ambiental ou fundiário competente. Verifique sempre dados, parâmetros e legislação vigente (normas técnicas do INCRA, Lei nº 12.651/2012 e regras estaduais do PRA) antes de utilizar os resultados.
 
 Para instruções detalhadas sobre atributos, parâmetros, regras de cálculo, fluxo de revisão e solução de problemas, consulte o manual completo ou o material de treinamento de cada ferramenta.
 
@@ -147,7 +147,7 @@ Para instruções detalhadas sobre atributos, parâmetros, regras de cálculo, f
 
 ## Autores e contato
 
-O Restaure é desenvolvido por:
+O Plugin Restaure é desenvolvido por:
 
 | Autor | LinkedIn |
 |---|---|
@@ -162,7 +162,7 @@ O Restaure é desenvolvido por:
 
 ## Redes sociais e suporte
 
-Acompanhe o Restaure nas redes sociais para ficar por dentro de novidades, lançamentos de ferramentas e conteúdos sobre georreferenciamento e regularização ambiental:
+Acompanhe a ONG Restaure nas redes sociais para ficar por dentro de novidades, lançamentos de ferramentas e conteúdos sobre georreferenciamento e regularização ambiental:
 
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-restaure__br-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/company/restaure_br)
 [![Instagram](https://img.shields.io/badge/Instagram-@restaure__br-E4405F?logo=instagram&logoColor=white)](https://www.instagram.com/restaure_br)

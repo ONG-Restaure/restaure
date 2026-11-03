@@ -12,10 +12,11 @@ from qgis.core import (
     QgsSpatialIndex, QgsRectangle, QgsCoordinateTransform,
 )
 
-from .compat import (
+from ..compat import (
     FONTE_LINHA, FONTE_PONTO, FONTE_POLIGONO, INSERCAO_RAPIDA, NUMERO_DECIMAL,
     TIPO_DECIMAL, TIPO_INTEIRO, TIPO_TEXTO, WKB_PONTO, geometrias_iguais,
 )
+from . import PASTA_PLUGIN
 
 MODOS = ["Toda ponta solta é nascente",
          "Usar direção da linha (início = nascente)",
@@ -56,7 +57,7 @@ class GerarNascentes(QgsProcessingAlgorithm):
     def shortHelpString(self):
         # painel de ajuda do formulário: aceita HTML; a logo é o icon.png do plugin
         url_logo = QUrl.fromLocalFile(
-            os.path.join(os.path.dirname(__file__), "docs", "images", "icon.png")).toString()
+            os.path.join(PASTA_PLUGIN, "docs", "images", "icon.png")).toString()
         return (
             f'<p><img src="{url_logo}" width="96" height="96"></p>'
             "<p>Gera nascentes automaticamente nas cabeceiras de drenagem, considerando "
@@ -69,7 +70,7 @@ class GerarNascentes(QgsProcessingAlgorithm):
         )
 
     def icon(self):
-        return QIcon(os.path.join(os.path.dirname(__file__), "docs", "images", "icon_nascentes.png"))
+        return QIcon(os.path.join(PASTA_PLUGIN, "docs", "images", "icon_nascentes.png"))
 
     def createInstance(self):
         return GerarNascentes()

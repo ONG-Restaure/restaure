@@ -2,14 +2,16 @@
 import os
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import QgsProcessingProvider
-from .algoritmo import GerarNascentes
-from .algoritmo_app import GerarAPP
+from .algoritmos.nascentes import GerarNascentes
+from .algoritmos.app import GerarAPP
+from .algoritmos.ods_sigef import OdsProGenerator
 
 
 class RestaureProvider(QgsProcessingProvider):
     def loadAlgorithms(self):
         self.addAlgorithm(GerarNascentes())
         self.addAlgorithm(GerarAPP())
+        self.addAlgorithm(OdsProGenerator())
 
     def id(self):
         return "restaure"

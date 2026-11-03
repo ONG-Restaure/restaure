@@ -52,11 +52,12 @@ from qgis.core import (
 )
 import processing
 
-from .compat import (
+from ..compat import (
     ARQUIVO_UNICO, FILTRO_CAMPO_NUMERICO, FILTRO_CAMPO_TEXTO, FONTE_LINHA,
     FONTE_PONTO, FONTE_POLIGONO, GEOM_POLIGONO, INSERCAO_RAPIDA, NUMERO_DECIMAL,
     NUMERO_INTEIRO, PARAM_AVANCADO, TIPO_DECIMAL, TIPO_TEXTO, WKB_MULTIPOLIGONO,
 )
+from . import PASTA_PLUGIN
 
 NOMES_CLASSES = {
     1: "formacao_florestal",
@@ -83,7 +84,7 @@ _LINHA_INCRA_RE = re.compile(
 
 # O final "/@@display-file/file" é essencial: sem ele o gov.br devolve a página
 # HTML de descrição do arquivo, não o PDF em si.
-_PASTA_EXT_LIBS = os.path.join(os.path.dirname(__file__), "ext_libs")
+_PASTA_EXT_LIBS = os.path.join(PASTA_PLUGIN, "ext_libs")
 
 URL_PDF_INCRA = (
     "https://www.gov.br/incra/pt-br/acesso-a-informacao/"
@@ -508,7 +509,7 @@ class GerarAPP(QgsProcessingAlgorithm):
     def shortHelpString(self):
         # painel de ajuda do formulário: aceita HTML; a logo é o icon.png do plugin
         url_logo = QUrl.fromLocalFile(
-            os.path.join(os.path.dirname(__file__), "docs", "images", "icon.png")).toString()
+            os.path.join(PASTA_PLUGIN, "docs", "images", "icon.png")).toString()
         return (
             f'<p><img src="{url_logo}" width="96" height="96"></p>'
             "<p>Gera área de preservação permanente APP automaticamente, "
@@ -519,7 +520,7 @@ class GerarAPP(QgsProcessingAlgorithm):
         )
 
     def icon(self):
-        return QIcon(os.path.join(os.path.dirname(__file__), "docs", "images", "icon_app.png"))
+        return QIcon(os.path.join(PASTA_PLUGIN, "docs", "images", "icon_app.png"))
 
     def createInstance(self):
         return GerarAPP()

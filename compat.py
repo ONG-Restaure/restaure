@@ -11,7 +11,8 @@ repositório de plugins analisa o código-fonte e acusa o acesso direto mesmo
 dentro do ramo que só roda no QGIS 3."""
 
 from qgis.core import (
-    Qgis, QgsFeatureSink, QgsProcessing, QgsProcessingParameterDefinition,
+    Qgis, QgsFeatureSink, QgsProcessing, QgsProcessingAlgorithm,
+    QgsProcessingParameterDefinition,
     QgsProcessingParameterField, QgsProcessingParameterFile,
     QgsProcessingParameterNumber, QgsWkbTypes,
 )
@@ -65,6 +66,22 @@ try:
     INSERCAO_RAPIDA = QgsFeatureSink.Flag.FastInsert
 except AttributeError:
     INSERCAO_RAPIDA = getattr(QgsFeatureSink, "FastInsert")
+
+# flag de algoritmo que roda na thread principal (Qgis.* no QGIS 3.36)
+if hasattr(Qgis, "ProcessingAlgorithmFlag"):
+    SEM_THREAD = Qgis.ProcessingAlgorithmFlag.NoThreading
+else:
+    SEM_THREAD = getattr(QgsProcessingAlgorithm, "FlagNoThreading")
+
+# níveis do QgsMessageLog
+try:
+    LOG_INFO = Qgis.MessageLevel.Info
+    LOG_AVISO = Qgis.MessageLevel.Warning
+    LOG_CRITICO = Qgis.MessageLevel.Critical
+except AttributeError:
+    LOG_INFO = getattr(Qgis, "Info")
+    LOG_AVISO = getattr(Qgis, "Warning")
+    LOG_CRITICO = getattr(Qgis, "Critical")
 
 
 def geometrias_iguais(a, b):

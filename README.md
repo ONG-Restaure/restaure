@@ -34,6 +34,7 @@ O Plugin Restaure reúne algoritmos de geoprocessamento na **Caixa de Ferramenta
 |---|---|---|
 | [Gerador de Nascentes](#gerador-de-nascentes) | Identifica possíveis nascentes a partir de redes de drenagem e aponta suspeitas de desconexão e possíveis fozes. | Restaure → Regularização Ambiental → Gerador de nascentes |
 | [Gerador de APP](#gerador-de-app) | Delimita Áreas de Preservação Permanente (APP) e analisa classes ambientais por lote. | Restaure → Regularização Ambiental → Gerador de APP |
+| ODS PRO | Gera as planilhas ODS do SIGEF a partir das camadas parcela, vértice e limite do GeoDataBase, parcela a parcela ou em lote (requer LibreOffice). | Restaure → Georreferenciamento → ODS PRO |
 
 > Novas ferramentas serão acrescentadas a esta tabela conforme forem publicadas.
 

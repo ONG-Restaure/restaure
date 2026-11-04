@@ -154,7 +154,9 @@ O Plugin Restaure é desenvolvido por:
 |---|---|
 | **Dra. Ranieli dos Anjos de Souza** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/ranieli-dos-anjos-de-souza-5a291b32/) |
 | **Dr. Valdir Moura** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/valdir-moura-181a7b14) |
+| **Fernanda Gessner** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)]("") |
 | **Maik Rodrigues** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/maikrodriguess/) |
+| **Márcio Guerra** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/m%C3%A1rcio-guerra-69b8833b3) |
 | **Mychelle Novais** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/mychelle-novais/) |
 
 

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-ods_pro_generator
+ods_sigef
 ***************************************************************************
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
@@ -11,15 +11,16 @@ ods_pro_generator
  *                                                                         *
  ***************************************************************************
 
-ODS PRO - Gerador de ODS do SIGEF em lote (ferramenta única).
+ODS PRO - gerador de ODS do SIGEF (ferramenta única).
+
+Uso restrito ao banco de dados GeoDataBase (GeoDataBase.gpkg).
 
 Dois modos de geração:
 
 - Lote a lote: gera UMA planilha ODS, da parcela selecionada na camada parcela.
 - Em lote: gera uma planilha ODS para cada parcela, em sequência, a partir da
-  parcela selecionada. Parcelas com ÁREA ENCRAVADA (anel interno) são geradas
-  primeiro; em seguida as demais. Em cada grupo, a ordem é pela coluna
-  "denominacao" (ordenação natural: Lote 2 antes de Lote 10).
+  parcela selecionada. A ordem é pela coluna "denominacao" (ordenação natural:
+  Lote 2 antes de Lote 10).
 
 Regras comuns aos dois modos:
 
@@ -32,9 +33,9 @@ Regras comuns aos dois modos:
   tocam/sobrepõem são ignoradas.
 """
 
-__author__ = 'Maik Rodrigues'
-__date__ = '2026-10-08'
-__copyright__ = '(C) 2024 by Maik Rodrigues'
+__author__ = 'Maik Rodrigues e Mychelle Novais'
+__date__ = '2026-11-04'
+__copyright__ = '(C) 2026 by Maik Rodrigues e Mychelle Novais'
 
 import glob
 import locale
@@ -54,7 +55,6 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.core import (
     NULL,
     QgsCoordinateTransform,
-    QgsDataSourceUri,
     QgsFeatureRequest,
     QgsGeometry,
     QgsMessageLog,
@@ -68,9 +68,11 @@ from qgis.core import (
     QgsProcessingParameterString,
     QgsProcessingParameterVectorLayer,
     QgsProject,
+    QgsProviderRegistry,
     QgsVectorLayer,
     QgsWkbTypes,
 )
+
 from ..compat import (
     FONTE_LINHA, FONTE_PONTO, FONTE_POLIGONO, LOG_AVISO, LOG_CRITICO,
     LOG_INFO, NUMERO_INTEIRO, SEM_THREAD,
@@ -83,14 +85,6 @@ from . import PASTA_PLUGIN
 # ============================================================
 
 CAMPO_DENOMINACAO = 'denominacao'
-
-# A geração de ODS (captar vértice, limite e parcela) só roda com camadas
-# provenientes deste banco de dados.
-BANCO_PERMITIDO = 'GeoDataBase'
-
-# Cota Z (campo "Z" da camada vertice): |Z| menor que este limite é
-# considerado de baixa precisão/suspeito (ex.: 5, 1,5, 0,7, 0,25, 0,004).
-LIMITE_BAIXA_PRECISAO = 10
 
 # Casas decimais usadas para comparar coordenadas de vértices.
 CASAS_CHAVE = 9
@@ -129,68 +123,112 @@ TIPOS_LIMITE = (
 
 
 # ============================================================
-# FUNÇÕES AUXILIARES
+# RESTRIÇÃO AO BANCO DE DADOS GeoDataBase
 # ============================================================
+# O ODS PRO só aceita camadas que venham do GeoPackage "GeoDataBase.gpkg"
+# (tabelas: vertice, limite e parcela), com os campos esperados.
 
-def find_layer_by_name(layer_name):
-    """Id da camada vetorial do projeto com esse nome (sem diferenciar maiúsculas)."""
+GPKG_NOME = 'geodatabase.gpkg'
+
+# Tabela do GeoDataBase -> campos que o ODS PRO lê.
+CAMPOS_GEODATABASE = {
+    'vertice': ('vertice', 'sigma_x', 'sigma_y', 'sigma_z',
+                'metodo_pos', 'tipo_verti', 'z'),
+    'limite': ('tipo', 'confrontan', 'cns', 'matricula'),
+    'parcela': ('nome', 'nat_serv', 'pessoa', 'cpf_cnpj', 'denominacao',
+                'situacao', 'natureza', 'sncr', 'matricula',
+                'cod_cartorio', 'municipio', 'uf'),
+}
+
+
+def origem_da_camada(layer):
+    """(caminho do arquivo, nome da tabela) de uma camada GeoPackage; senão (None, None)."""
+    if not isinstance(layer, QgsVectorLayer) or layer.providerType() != 'ogr':
+        return None, None
+    try:
+        partes = QgsProviderRegistry.instance().decodeUri('ogr', layer.source())
+    except Exception:
+        return None, None
+    caminho = partes.get('path') or ''
+    tabela = partes.get('layerName') or ''
+    if not caminho.lower().endswith('.gpkg'):
+        return None, None
+    return caminho, tabela
+
+
+def erro_da_camada(layer, tabela):
+    """Texto do problema se a camada NÃO for a tabela `tabela` do GeoDataBase; senão None."""
+    caminho, nome = origem_da_camada(layer)
+
+    if caminho is None:
+        return ("A camada '{}' não vem do GeoDataBase. Use a tabela '{}' do "
+                "GeoPackage GeoDataBase.gpkg.".format(
+                    layer.name() if layer else '?', tabela))
+
+    if os.path.basename(caminho).lower() != GPKG_NOME:
+        return ("A camada '{}' vem do arquivo '{}'. O ODS PRO só funciona com "
+                "o banco GeoDataBase.gpkg.".format(
+                    layer.name(), os.path.basename(caminho)))
+
+    if (nome or '').lower() != tabela:
+        return ("A camada '{}' é a tabela '{}' do GeoDataBase, mas aqui é "
+                "preciso informar a tabela '{}'.".format(
+                    layer.name(), nome, tabela))
+
+    campos = {f.name().lower() for f in layer.fields()}
+    faltando = [c for c in CAMPOS_GEODATABASE[tabela] if c not in campos]
+    if faltando:
+        return ("A tabela '{}' do GeoDataBase não tem os campos: {}.".format(
+            tabela, ', '.join(faltando)))
+
+    return None
+
+
+def camada_padrao(tabela):
+    """Id da camada do projeto que é a tabela `tabela` do GeoDataBase (ou None)."""
     for layer in QgsProject.instance().mapLayers().values():
-        if isinstance(layer, QgsVectorLayer) and layer.name().lower() == layer_name.lower():
+        caminho, nome = origem_da_camada(layer)
+        if (caminho and os.path.basename(caminho).lower() == GPKG_NOME
+                and (nome or '').lower() == tabela):
             return layer.id()
     return None
 
 
-def nome_banco_da_camada(camada):
-    """Nome do banco de dados de onde a camada é lida ('' se não identificável).
+# ============================================================
+# FUNÇÕES AUXILIARES
+# ============================================================
 
-    - PostgreSQL/PostGIS: nome do banco (dbname da conexão).
-    - Spatialite/GeoPackage/OGR em arquivo: nome do arquivo sem extensão.
-    """
-    provedor = camada.providerType()
-    fonte = camada.source()
-
-    if provedor == 'postgres':
-        return (QgsDataSourceUri(fonte).database() or '').strip()
-
-    if provedor == 'spatialite':
-        caminho = QgsDataSourceUri(fonte).database() or ''
-    else:
-        caminho = fonte.split('|')[0]
-
-    return Path(caminho).stem.strip() if caminho else ''
-
-
-def validar_banco_geodatabase(camadas):
-    """Aborta se alguma das camadas (parcela, vértice, limite) não vier do
-    banco de dados BANCO_PERMITIDO."""
-    for rotulo, camada in camadas:
-        banco = nome_banco_da_camada(camada)
-        if banco.casefold() != BANCO_PERMITIDO.casefold():
-            raise QgsProcessingException(
-                'Geração de ODS restrita ao banco de dados "{}". A camada {} '
-                '("{}") pertence ao banco "{}". Carregue parcela, vértice e '
-                'limite do banco "{}".'.format(
-                    BANCO_PERMITIDO, rotulo, camada.name(),
-                    banco or 'desconhecido', BANCO_PERMITIDO
-                )
-            )
+_SUBSTITUICOES_NOME = {
+    "ß": "ss", "æ": "ae", "Æ": "AE", "œ": "oe", "Œ": "OE",
+    "ø": "o", "Ø": "O", "đ": "d", "Đ": "D", "ł": "l", "Ł": "L",
+}
 
 
 def limpar_nome_arquivo(texto):
-    """PA Amigos do Campo - Lote 009 -> PA_Amigos_do_Campo_Lote_009
+    """Nome de arquivo somente com letras (A-Z), números e "_".
 
-    Sem acentos: PA Aliança - Lote 1 -> PA_Alianca_Lote_1
+    PA Amigos do Campo - Lote 009  -> PA_Amigos_do_Campo_Lote_009
+    PA_Aliança_Lote_003A           -> PA_Alianca_Lote_003A
+    PA_São_Paulo                   -> PA_Sao_Paulo
+    Joana D'Arc                    -> Joana_D_Arc
     """
     texto = str(texto).strip()
-    # Remove acentos e cedilha: ç -> c, ã -> a, é -> e ...
+
+    # Letras especiais sem decomposição (ß, ø, ł...).
+    for origem, destino in _SUBSTITUICOES_NOME.items():
+        texto = texto.replace(origem, destino)
+
+    # Remove acentos e cedilha: á->a, ã->a, ç->c, ñ->n ...
     texto = unicodedata.normalize("NFKD", texto)
     texto = "".join(c for c in texto if not unicodedata.combining(c))
-    texto = re.sub(r"\s*[-–—]\s*", " ", texto)
-    texto = re.sub(r'[<>:"/\\|?*,]', "_", texto)
-    texto = re.sub(r"\s+", "_", texto)
+
+    # Qualquer caractere que não seja letra ASCII ou número (espaço, traço,
+    # apóstrofo, vírgula, ponto, parênteses...) vira "_".
+    texto = re.sub(r"[^A-Za-z0-9]+", "_", texto)
+
     texto = re.sub(r"_e_", "_", texto)
     texto = re.sub(r"_+", "_", texto)
-    return texto.strip("._") or "parcela"
+    return texto.strip("_") or "parcela"
 
 
 def chave_natural(valor):
@@ -265,14 +303,6 @@ def partes_ordenadas_por_area(geom):
     return sorted(partes, key=lambda parte: area_anel(parte[0]), reverse=True)
 
 
-def tem_area_encravada(geom):
-    """True se a parcela possui ÁREA ENCRAVADA (anel interno/buraco em alguma parte).
-
-    Não depende de topologia: apenas conta os anéis de cada parte.
-    """
-    return any(len(parte) > 1 for parte in partes_do_poligono(geom))
-
-
 def _nome_tipo_geometria(geom):
     try:
         return QgsWkbTypes.displayString(geom.wkbType()) or ''
@@ -334,7 +364,7 @@ class AlvoParcela:
         for v in geom.vertices():
             self.chaves.add(chave_ponto(v.x(), v.y()))
 
-        self.tol = 1e-9 if crs.isGeographic() else 1e-4
+        self.tol = 1e-6 if crs.isGeographic() else 1e-2
 
         contornos = []
         for parte in partes_do_poligono(geom):
@@ -357,9 +387,12 @@ class AlvoParcela:
     def toca(self, geom):
         if self.valida:
             try:
-                return bool(geom.touches(self.geom))
+                if geom.touches(self.geom):
+                    return True
             except Exception:
                 pass
+            # "touches" estrito descarta linhas que só diferem por ruído
+            # numérico (entram ~1e-9 na parcela): confere pelo contorno.
 
         linhas = linhas_da_geometria(geom)
 
@@ -513,18 +546,26 @@ def preparar_anel(anel):
 
     Sem operações topológicas: funciona mesmo com auto-intersecção.
     """
+    def _perto(a, b):
+        # nós a ~10 cm (ou menos) são o MESMO vértice (ruído de digitalização)
+        return ((a.x() - b.x()) ** 2 + (a.y() - b.y()) ** 2) ** 0.5 \
+            <= TOLERANCIA_VERTICE
+
     pts = []
 
     for p in anel:
-        if pts and chave_ponto(p.x(), p.y()) == chave_ponto(
-            pts[-1].x(), pts[-1].y()
+        if pts and (
+            chave_ponto(p.x(), p.y()) == chave_ponto(pts[-1].x(), pts[-1].y())
+            or _perto(p, pts[-1])
         ):
             continue
         pts.append(p)
 
-    if len(pts) > 1 and chave_ponto(pts[0].x(), pts[0].y()) != chave_ponto(
-        pts[-1].x(), pts[-1].y()
-    ):
+    # nós finais praticamente iguais ao primeiro (fechamento do anel)
+    while len(pts) > 1 and _perto(pts[0], pts[-1]):
+        pts.pop()
+
+    if pts:
         pts.append(pts[0])
 
     if len(pts) < 4:
@@ -536,6 +577,85 @@ def preparar_anel(anel):
     inicio = max(range(len(aberto)), key=lambda i: aberto[i].y())
 
     return aberto[inicio:] + aberto[:inicio] + [aberto[inicio]]
+
+
+LIMITE_BAIXA_PRECISAO = 10
+
+
+def aviso_analista(mensagem):
+    QgsMessageLog.logMessage(
+        '[AVISO_ANALISTA] ' + mensagem, 'GeneratorOds', LOG_AVISO
+    )
+
+
+def z_como_esta(feat_v, z):
+    """Z com a quantidade de casas decimais que tiver (100 -> 100;
+    100.222 -> 100,222), sem arredondar nem acrescentar zeros."""
+    bruto = None
+    if feat_v.fieldNameIndex('Z') >= 0:
+        bruto = feat_v['Z']
+    if isinstance(bruto, str) and bruto.strip():
+        texto = bruto.strip().replace(',', '.')
+        try:
+            float(texto)
+        except ValueError:
+            texto = None
+    else:
+        texto = None
+    if texto is None:
+        texto = repr(float(z))
+        if 'e' in texto.lower():
+            texto = '{:.15f}'.format(z).rstrip('0').rstrip('.')
+    if '.' in texto:
+        texto = texto.rstrip('0').rstrip('.')
+    return texto.replace('.', ',')
+
+
+def altitude_do_vertice(feat_v, codigo, cod_tecnico, dec_prec, fmt):
+    """Altitude (coluna F) do vértice.
+      - Z lido do campo "Z" da tabela de atributos da camada vértice;
+      - Código do técnico informado (ex.: ALS) e contido no código do
+        vértice: SEMPRE 2 casas decimais;
+      - Demais códigos (com o código do técnico informado): o Z com a
+        quantidade de casas que tiver (100,222 ou 100);
+      - Sem código do técnico informado: Z com as casas configuradas;
+      - Z ausente/zero/|Z| < 10 gera [AVISO_ANALISTA] (critério do script
+        corrigir_precisao_z_ods), mas o valor continua sendo preenchido
+        pela regra acima.
+    """
+    z = attr_float(feat_v, 'Z')
+    if z is None and feat_v.fieldNameIndex('Z') >= 0:
+        try:
+            z = float(str(feat_v['Z']).strip().replace(',', '.'))
+        except ValueError:
+            z = None
+    if z is None:
+        z = z_da_feicao(feat_v)
+        if isnan(z):
+            z = None
+
+    motivo = None
+    if z is None:
+        motivo = 'Z ausente ou inválido na tabela de atributos'
+    elif z == 0:
+        motivo = 'Z = 0 na tabela de atributos. Corrija manualmente'
+    elif abs(z) < LIMITE_BAIXA_PRECISAO:
+        motivo = 'Z de baixa precisão (|Z| < {}): {}. Verifique manualmente'.format(
+            LIMITE_BAIXA_PRECISAO, z
+        )
+    if motivo:
+        aviso_analista("Vértice '{}' (ID: {}): {}.".format(
+            codigo, feat_v.id(), motivo))
+
+    if z is None:
+        return '0,00'
+
+    if cod_tecnico:
+        if cod_tecnico in codigo.upper():
+            return '{:.2f}'.format(z).replace('.', ',')
+        return z_como_esta(feat_v, z)
+
+    return fmt(z)
 
 
 def z_da_feicao(feat):
@@ -605,63 +725,191 @@ def validar_limite(feat):
         )
 
 
+CAMPOS_OBRIGATORIOS_LIMITE = (
+    ('confrontan', 'Confrontante'),
+    ('tipo', 'Tipo de confrontante'),
+)
+
+CAMPOS_OBRIGATORIOS_VERTICE = (
+    ('vertice', 'Vértice'),
+    ('sigma_x', 'Sigma X'),
+    ('sigma_y', 'Sigma Y'),
+    ('sigma_z', 'Sigma Z'),
+    ('tipo_verti', 'Tipo de vértice'),
+    ('metodo_pos', 'Método de posicionamento'),
+)
+
+
+def verificar_preenchimento(vertices, limites):
+    """Erro se houver atributos obrigatórios vazios (a ODS NÃO é gerada).
+
+    limite : confrontan, tipo
+    vertice: vertice, sigma_x, sigma_y, sigma_z, tipo_verti, metodo_pos
+    Lista TODAS as pendências, para o usuário corrigir de uma vez.
+    """
+    pendencias = []
+
+    for feat in limites:
+        vazios = [
+            '"{}" ({})'.format(campo, rotulo)
+            for campo, rotulo in CAMPOS_OBRIGATORIOS_LIMITE
+            if attr_texto(feat, campo) == ''
+        ]
+        if vazios:
+            pendencias.append(
+                'camada limite, feição id {}: sem preenchimento em {}'.format(
+                    feat.id(), ', '.join(vazios)
+                )
+            )
+
+    for feat in vertices:
+        vazios = [
+            '"{}" ({})'.format(campo, rotulo)
+            for campo, rotulo in CAMPOS_OBRIGATORIOS_VERTICE
+            if attr_texto(feat, campo) == ''
+        ]
+        if vazios:
+            codigo = attr_texto(feat, 'vertice')
+            pendencias.append(
+                'camada vertice, feição id {}{}: sem preenchimento em {}'.format(
+                    feat.id(),
+                    ' ({})'.format(codigo) if codigo else '',
+                    ', '.join(vazios)
+                )
+            )
+
+    if pendencias:
+        raise QgsProcessingException(
+            'Atributos obrigatórios sem preenchimento (ODS não gerada):\n  - '
+            + '\n  - '.join(pendencias)
+        )
+
+
+TOLERANCIA_VERTICE = 1e-6  # ~10 cm em graus
+
+
+class IndiceVertices(dict):
+    """Índice exato por coordenada + busca por tolerância (vértice que toca
+    a parcela e o limite)."""
+
+    def __init__(self):
+        super().__init__()
+        self.pontos = []  # (feição, QgsPointXY)
+
+    def buscar(self, pnt, idx_limites=None):
+        feat = self.get(chave_ponto(pnt.x(), pnt.y()))
+        if feat is not None:
+            return feat
+
+        melhor, melhor_d = None, None
+        for f, q in self.pontos:
+            d = ((q.x() - pnt.x()) ** 2 + (q.y() - pnt.y()) ** 2) ** 0.5
+            if d > TOLERANCIA_VERTICE:
+                continue
+            # o vértice precisa tocar também o limite
+            if idx_limites is not None and idx_limites.linhas:
+                if min(_dist_ponto_linha(q.x(), q.y(), l)
+                       for _, l in idx_limites.linhas) > TOLERANCIA_VERTICE:
+                    continue
+            if melhor_d is None or d < melhor_d:
+                melhor, melhor_d = f, d
+        if melhor is not None:
+            return melhor
+
+        # último recurso: vértice mais próximo (~1 m), mesmo sem tocar o limite
+        for f, q in self.pontos:
+            d = ((q.x() - pnt.x()) ** 2 + (q.y() - pnt.y()) ** 2) ** 0.5
+            if d <= 1e-5 and (melhor_d is None or d < melhor_d):
+                melhor, melhor_d = f, d
+        return melhor
+
+
 def indexar_vertices(vertice_feats):
-    indice = {}
+    indice = IndiceVertices()
     for feat in vertice_feats:
         for p in pontos_da_geometria(feat.geometry()):
             indice.setdefault(chave_ponto(p.x(), p.y()), feat)
+            indice.pontos.append((feat, p))
     return indice
 
 
-def indexar_limites(limite_feats):
-    """Indexa cada segmento (A -> B) das linhas de limite."""
-    indice = {}
-    for feat in limite_feats:
-        for linha in linhas_da_geometria(feat.geometry()):
-            for a, b in zip(linha[:-1], linha[1:]):
-                chave = (chave_ponto(a.x(), a.y()), chave_ponto(b.x(), b.y()))
-                indice.setdefault(chave, feat)
-    return indice
+TOLERANCIA_LIMITE = 5e-7  # unidades do SRC (~5 cm em graus); absorve ruído numérico
 
 
-def normalizar_codigos_excecao(texto):
-    """'ALS; bcm' -> ('ALS', 'BCM'). Vazio -> () (correção desativada)."""
-    return tuple(
-        c.strip().upper()
-        for c in re.split(r'[;,\s]+', str(texto or ''))
-        if c.strip()
+def _dist_ponto_segmento(px, py, a, b):
+    ax, ay, bx, by = a.x(), a.y(), b.x(), b.y()
+    dx, dy = bx - ax, by - ay
+    tam2 = dx * dx + dy * dy
+    if tam2 == 0:
+        return ((px - ax) ** 2 + (py - ay) ** 2) ** 0.5
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / tam2))
+    cx, cy = ax + t * dx, ay + t * dy
+    return ((px - cx) ** 2 + (py - cy) ** 2) ** 0.5
+
+
+def _dist_ponto_linha(px, py, linha):
+    return min(
+        _dist_ponto_segmento(px, py, a, b)
+        for a, b in zip(linha[:-1], linha[1:])
     )
 
 
-def eh_codigo_excecao(codigo, codigos_excecao):
-    """True se o código do vértice pertence ao técnico executante (exceção)."""
-    codigo = str(codigo or '').upper()
-    return any(c in codigo for c in codigos_excecao)
+class IndiceLimites(dict):
+    """Índice exato dos segmentos (A->B e B->A) + busca geométrica de reserva."""
+
+    def __init__(self):
+        super().__init__()
+        self.linhas = []  # (feição, polilinha)
+
+    def buscar(self, pnt, pnt_seg):
+        ka = chave_ponto(pnt.x(), pnt.y())
+        kb = chave_ponto(pnt_seg.x(), pnt_seg.y())
+
+        # 1) segmento idêntico, em qualquer sentido
+        feat = self.get((ka, kb)) or self.get((kb, ka))
+        if feat is not None:
+            return feat
+
+        # 2) geométrico: os dois extremos (e o ponto médio) do segmento da
+        #    parcela estão sobre a mesma linha de limite (dentro da tolerância).
+        mx = (pnt.x() + pnt_seg.x()) / 2.0
+        my = (pnt.y() + pnt_seg.y()) / 2.0
+        melhor, melhor_d = None, None
+        for feat, linha in self.linhas:
+            d = max(
+                _dist_ponto_linha(pnt.x(), pnt.y(), linha),
+                _dist_ponto_linha(pnt_seg.x(), pnt_seg.y(), linha),
+                _dist_ponto_linha(mx, my, linha),
+            )
+            if d <= TOLERANCIA_LIMITE and (melhor_d is None or d < melhor_d):
+                melhor, melhor_d = feat, d
+        if melhor is not None:
+            return melhor
+
+        # 3) último recurso: limite mais próximo do ponto médio (sem tolerância)
+        proximo, prox_d = None, None
+        for feat, linha in self.linhas:
+            d = _dist_ponto_linha(mx, my, linha)
+            if prox_d is None or d < prox_d:
+                proximo, prox_d = feat, d
+        return proximo
 
 
-def casas_decimais(valor):
-    """Quantidade de casas decimais de um número (ex.: 101.222 -> 3)."""
-    texto = '{:.10f}'.format(round(float(valor), 10)).rstrip('0').rstrip('.')
-    return len(texto.split('.')[1]) if '.' in texto else 0
-
-
-def altitude_do_atributo(feat, dec_prec):
-    """Cota Z do campo "Z" da camada vértice, com TODAS as suas casas decimais.
-
-    Nunca usa menos casas que dec_prec (101.2 -> '101,20'; 101.222 -> '101,222').
-    Devolve None se o campo Z estiver ausente/inválido.
-    """
-    z = attr_float(feat, 'Z')
-
-    if z is None or isnan(z):
-        return None
-
-    casas = max(dec_prec, casas_decimais(z))
-    return ('{:.' + str(casas) + 'f}').format(round(z, 10)).replace('.', ',')
+def indexar_limites(limite_feats):
+    """Indexa cada segmento das linhas de limite (nos dois sentidos)."""
+    indice = IndiceLimites()
+    for feat in limite_feats:
+        for linha in linhas_da_geometria(feat.geometry()):
+            indice.linhas.append((feat, linha))
+            for a, b in zip(linha[:-1], linha[1:]):
+                ka = chave_ponto(a.x(), a.y())
+                kb = chave_ponto(b.x(), b.y())
+                indice.setdefault((ka, kb), feat)
+    return indice
 
 
 def montar_corpo_parte(numero, anel, idx_vertices, idx_limites,
-                       dec_coord, dec_prec, validados, codigos_excecao=()):
+                       dec_coord, dec_prec, validados, cod_tecnico=''):
     """Comandos da macro para UMA parte (uma aba perimetro_N)."""
     dec_prec_txt = str(dec_prec)
 
@@ -676,77 +924,66 @@ def montar_corpo_parte(numero, anel, idx_vertices, idx_limites,
         pnt = anel[k1]
         pnt_seg = anel[k1 + 1]
 
-        feat_v = idx_vertices.get(chave_ponto(pnt.x(), pnt.y()))
+        feat_v = idx_vertices.buscar(pnt, idx_limites)
 
-        if feat_v is None:
-            raise QgsProcessingException(
-                'Parte {}: ponto de coordenadas ({}, {}) da camada parcela '
-                'não possui correspondente na camada vértice!'
-                .format(numero, pnt.y(), pnt.x())
-            )
-
-        if feat_v.id() not in validados['v']:
-            validar_vertice(feat_v)
+        if feat_v is not None and feat_v.id() not in validados['v']:
+            try:
+                validar_vertice(feat_v)
+            except QgsProcessingException as e:
+                aviso_analista(str(e))
             validados['v'].add(feat_v.id())
 
-        feat_l = idx_limites.get((
-            chave_ponto(pnt.x(), pnt.y()),
-            chave_ponto(pnt_seg.x(), pnt_seg.y())
-        ))
-
-        if feat_l is None:
-            raise QgsProcessingException(
-                'Parte {}: limite não encontrado para o segmento de ponto '
-                '({}, {}) para ({}, {}). Verifique topologia/sentido da '
-                'camada limite.'.format(
-                    numero, pnt.y(), pnt.x(), pnt_seg.y(), pnt_seg.x()
+        if feat_v is None:
+            aviso_analista(
+                'Parte {}: ponto ({}, {}) sem vértice correspondente. '
+                'Campos do vértice deixados em branco.'.format(
+                    numero, pnt.y(), pnt.x()
                 )
             )
 
-        if feat_l.id() not in validados['l']:
-            validar_limite(feat_l)
+        feat_l = idx_limites.buscar(pnt, pnt_seg)
+
+        if feat_l is None:
+            aviso_analista(
+                'Parte {}: limite não encontrado para o segmento ({}, {}) '
+                'para ({}, {}). Campos de limite deixados em branco.'.format(
+                    numero, pnt.y(), pnt.x(), pnt_seg.y(), pnt_seg.x()
+                )
+            )
+        elif feat_l.id() not in validados['l']:
+            try:
+                validar_limite(feat_l)
+            except QgsProcessingException as e:
+                aviso_analista(str(e))
             validados['l'].add(feat_l.id())
 
-        codigo = attr_texto(feat_v, 'vertice')
         longitude = dd2dms(pnt.x(), dec_coord) + 'W'
         latitude = (
             dd2dms(pnt.y(), dec_coord) + 'S' if pnt.y() < 0
             else dd2dms(pnt.y(), dec_coord) + 'N'
         )
-        sigma_x = fmt(attr_float(feat_v, 'sigma_x'))
-        sigma_y = fmt(attr_float(feat_v, 'sigma_y'))
-        sigma_z = fmt(attr_float(feat_v, 'sigma_z'))
-
-        z = z_da_feicao(feat_v)
-        altitude_atributo = None
-
-        # Código de OUTRO técnico (não é a exceção): a cota Z da planilha
-        # segue o campo Z da camada vértice, preservando suas casas decimais.
-        if codigos_excecao and not eh_codigo_excecao(codigo, codigos_excecao):
-            altitude_atributo = altitude_do_atributo(feat_v, dec_prec)
-
-        if altitude_atributo is not None:
-            altitude = altitude_atributo
-            padrao = fmt(z) if not isnan(z) else '0,00'
-            if altitude != padrao and feat_v.id() not in validados['z']:
-                validados['z'][feat_v.id()] = (codigo, padrao, altitude)
-        elif not isnan(z):
-            altitude = fmt(z)
-        else:
+        if feat_v is None:
+            codigo = ''
+            sigma_x = sigma_y = sigma_z = fmt(0.0)
             altitude = '0,00'
-            QgsMessageLog.logMessage(
-                'Advertência: Ponto de código {} (ID: {}) está com altitude '
-                'igual a 0 (zero). Verifique!'.format(codigo, feat_v.id()),
-                'GeneratorOds',
-                LOG_AVISO
+            metodo_pos = ''
+        else:
+            codigo = attr_texto(feat_v, 'vertice')
+            sigma_x = fmt(attr_float(feat_v, 'sigma_x') or 0.0)
+            sigma_y = fmt(attr_float(feat_v, 'sigma_y') or 0.0)
+            sigma_z = fmt(attr_float(feat_v, 'sigma_z') or 0.0)
+            altitude = altitude_do_vertice(
+                feat_v, codigo, cod_tecnico, dec_prec, fmt
             )
+            metodo_pos = attr_texto(feat_v, 'metodo_pos')
 
-        metodo_pos = attr_texto(feat_v, 'metodo_pos')
-
-        tipo = attr_texto(feat_l, 'tipo')
-        confrontan = attr_texto(feat_l, 'confrontan')
-        cns = attr_texto(feat_l, 'cns')
-        matricula = attr_texto(feat_l, 'matricula')
+        if feat_l is None:
+            tipo = confrontan = cns = matricula = ''
+        else:
+            tipo = attr_texto(feat_l, 'tipo')
+            confrontan = attr_texto(feat_l, 'confrontan')
+            cns = attr_texto(feat_l, 'cns')
+            matricula = attr_texto(feat_l, 'matricula')
 
         k = k1 + 12
         valores = (
@@ -878,10 +1115,158 @@ def ler_texto_macro(caminho):
             return arq.read(), codificacao
 
 
+# ---------------- conexão parcela x vértice x limite (bloqueante) ----------------
+
+def _vertice_estrito(idx_vertices, pnt):
+    """Vértice (ponto) exatamente sobre a coordenada, dentro da tolerância.
+
+    Sem "último recurso": se não há vértice sobre o ponto, devolve None.
+    """
+    feat = idx_vertices.get(chave_ponto(pnt.x(), pnt.y()))
+    if feat is not None:
+        return feat
+
+    melhor, melhor_d = None, None
+    for f, q in idx_vertices.pontos:
+        d = ((q.x() - pnt.x()) ** 2 + (q.y() - pnt.y()) ** 2) ** 0.5
+        if d <= TOLERANCIA_VERTICE and (melhor_d is None or d < melhor_d):
+            melhor, melhor_d = f, d
+    return melhor
+
+
+def _limite_estrito(idx_limites, pnt, pnt_seg):
+    """Limite que cobre o segmento da parcela (sem busca pelo mais próximo)."""
+    feat = (idx_limites.get((chave_ponto(pnt.x(), pnt.y()),
+                             chave_ponto(pnt_seg.x(), pnt_seg.y())))
+            or idx_limites.get((chave_ponto(pnt_seg.x(), pnt_seg.y()),
+                                chave_ponto(pnt.x(), pnt.y()))))
+    if feat is not None:
+        return feat
+
+    mx = (pnt.x() + pnt_seg.x()) / 2.0
+    my = (pnt.y() + pnt_seg.y()) / 2.0
+    melhor, melhor_d = None, None
+    for f, linha in idx_limites.linhas:
+        d = max(
+            _dist_ponto_linha(pnt.x(), pnt.y(), linha),
+            _dist_ponto_linha(pnt_seg.x(), pnt_seg.y(), linha),
+            _dist_ponto_linha(mx, my, linha),
+        )
+        if d <= TOLERANCIA_LIMITE and (melhor_d is None or d < melhor_d):
+            melhor, melhor_d = f, d
+    return melhor
+
+
+def _no_de_limite_em(idx_limites, pnt):
+    """True se algum limite possui um NÓ (extremo ou quebra) sobre o ponto."""
+    for _, linha in idx_limites.linhas:
+        for q in linha:
+            if ((q.x() - pnt.x()) ** 2 + (q.y() - pnt.y()) ** 2) ** 0.5 \
+                    <= TOLERANCIA_VERTICE:
+                return True
+    return False
+
+
+def _normalizar_nome(texto):
+    """Minúsculas, sem acentos e com espaços simples (comparação de nomes)."""
+    texto = unicodedata.normalize('NFKD', texto or '')
+    texto = ''.join(c for c in texto if not unicodedata.combining(c))
+    return ' '.join(texto.lower().split())
+
+
+def verificar_conexao_parcela(parcela, vertices, limites):
+    """Erro (a ODS NÃO é gerada) se a parcela estiver desconectada.
+
+    Para o anel externo de CADA parte da parcela, exige:
+      1) vértice (ponto) sobre cada vértice do polígono;
+      2) limite (linha) cobrindo cada lado do polígono;
+      3) limite e parcela conectados no vértice: o vértice da parcela
+         coincide com um nó da linha de limite (e com o ponto vértice);
+      4) código do vértice NÃO repetido na mesma aba (parte);
+      5) confrontante que repete a denominação da parcela deve mencionar
+         "parte" (ex.: "Fazenda X - Parte 2").
+    Lista TODAS as pendências, para o usuário corrigir de uma vez.
+    """
+    partes = partes_ordenadas_por_area(parcela.geometry())
+
+    if not partes:
+        raise QgsProcessingException(
+            "A parcela não possui polígono para gerar a planilha."
+        )
+
+    idx_vertices = indexar_vertices(vertices)
+    idx_limites = indexar_limites(limites)
+
+    pendencias = []
+
+    denominacao = _normalizar_nome(attr_texto(parcela, CAMPO_DENOMINACAO))
+    confrontantes_ja_avisados = set()
+
+    for numero, parte in enumerate(partes, start=1):
+        anel = preparar_anel(parte[0])
+        codigos_aba = {}  # código normalizado -> primeiro ponto (na aba)
+
+        for k in range(len(anel) - 1):
+            pnt = anel[k]
+            pnt_seg = anel[k + 1]
+            local = 'Parte {}, ponto ({}, {})'.format(numero, pnt.y(), pnt.x())
+
+            feat_v = _vertice_estrito(idx_vertices, pnt)
+            if feat_v is None:
+                pendencias.append(
+                    '{}: falta o VÉRTICE (ponto) na camada vértice'.format(local)
+                )
+            else:
+                codigo = attr_texto(feat_v, 'vertice').strip()
+                if codigo:
+                    chave = codigo.upper()
+                    if chave in codigos_aba:
+                        pendencias.append(
+                            '{}: código de vértice "{}" REPETIDO na mesma aba '
+                            '(já usado no ponto {})'.format(
+                                local, codigo, codigos_aba[chave]
+                            )
+                        )
+                    else:
+                        codigos_aba[chave] = '({}, {})'.format(pnt.y(), pnt.x())
+
+            feat_l = _limite_estrito(idx_limites, pnt, pnt_seg)
+            if feat_l is None:
+                pendencias.append(
+                    '{}: falta o LIMITE no lado até ({}, {})'.format(
+                        local, pnt_seg.y(), pnt_seg.x()
+                    )
+                )
+            elif denominacao and feat_l.id() not in confrontantes_ja_avisados:
+                confrontan = _normalizar_nome(attr_texto(feat_l, 'confrontan'))
+                if (re.search(r'(?<!\w)' + re.escape(denominacao) + r'(?!\w)',
+                              confrontan)
+                        and not re.search(r'(?<!\w)parte(?!\w)', confrontan)):
+                    confrontantes_ja_avisados.add(feat_l.id())
+                    pendencias.append(
+                        '{}: confrontante "{}" repete a denominação da parcela '
+                        'sem mencionar "parte" (limite id {})'.format(
+                            local, attr_texto(feat_l, 'confrontan'), feat_l.id()
+                        )
+                    )
+
+            if not _no_de_limite_em(idx_limites, pnt):
+                pendencias.append(
+                    '{}: limite e parcela NÃO estão conectados no vértice '
+                    '(a linha de limite não possui nó neste ponto)'.format(local)
+                )
+
+    if pendencias:
+        raise QgsProcessingException(
+            'Parcela com pendência em vértice/limite/confrontante '
+            '(ODS não gerada):\n  - ' + '\n  - '.join(pendencias)
+        )
+
+
 # ---------------- geração do ODS de UMA parcela ----------------
 
 def gerar_ods_parcela(parcela, vertices, limites, caminho_saida,
-                      dec_coord, dec_prec, feedback, codigos_excecao=()):
+                      dec_coord, dec_prec, feedback, cod_tecnico=''):
     """Preenche o modelo SIGEF (uma aba por parte) via macro do LibreOffice."""
     geom = parcela.geometry()
 
@@ -899,7 +1284,7 @@ def gerar_ods_parcela(parcela, vertices, limites, caminho_saida,
     idx_limites = indexar_limites(limites)
 
     # 1) Monta o corpo de cada parte (valida antes de abrir o LibreOffice)
-    validados = {'v': set(), 'l': set(), 'z': {}}
+    validados = {'v': set(), 'l': set()}
     corpos = {}
 
     for numero, parte in enumerate(partes, start=1):
@@ -914,16 +1299,8 @@ def gerar_ods_parcela(parcela, vertices, limites, caminho_saida,
 
         corpos[numero] = montar_corpo_parte(
             numero, anel, idx_vertices, idx_limites,
-            dec_coord, dec_prec, validados, codigos_excecao
+            dec_coord, dec_prec, validados, cod_tecnico
         )
-
-    if validados['z']:
-        feedback.pushInfo(
-            "Cota Z corrigida pela camada vértice (código de outro técnico): "
-            "{} vértice(s)".format(len(validados['z']))
-        )
-        for codigo, antes, depois in validados['z'].values():
-            feedback.pushInfo("  {}: {} -> {}".format(codigo, antes, depois))
 
     # 2) Prepara a macro
     pasta_shp = pasta_plugin_shp()
@@ -1003,8 +1380,12 @@ def gerar_ods_parcela(parcela, vertices, limites, caminho_saida,
 
 def gerar_ods_em_planilha_limpa(parcela, vertices, limites, pasta_saida,
                                 caminho_final, dec_coord, dec_prec, feedback,
-                                codigos_excecao=()):
+                                cod_tecnico=''):
     """Gera o ODS em pasta temporária exclusiva e só depois grava o arquivo final."""
+    # Bloqueia ANTES de qualquer escrita/remoção: polígono sem vértice/limite
+    # ou com limite e parcela desconectados no vértice não gera ODS.
+    verificar_conexao_parcela(parcela, vertices, limites)
+
     if os.path.exists(caminho_final):
         try:
             os.remove(caminho_final)
@@ -1025,7 +1406,7 @@ def gerar_ods_em_planilha_limpa(parcela, vertices, limites, pasta_saida,
     try:
         gerar_ods_parcela(
             parcela, vertices, limites, caminho_temporario,
-            dec_coord, dec_prec, feedback, codigos_excecao
+            dec_coord, dec_prec, feedback, cod_tecnico
         )
 
         if not os.path.exists(caminho_temporario):
@@ -1077,8 +1458,8 @@ class OdsProGenerator(QgsProcessingAlgorithm):
     LIMITE = 'LIMITE'
     DEC_COORD = 'DEC_COORD'
     DEC_PREC = 'DEC_PREC'
-    COD_EXCECAO = 'COD_EXCECAO'
     VER_Z = 'VER_Z'
+    COD_TECNICO = 'COD_TECNICO'
     SEL_PROXIMO = 'SEL_PROXIMO'
     VAL_COMPLETA = 'VAL_COMPLETA'
     OUTPUT_FOLDER = 'OUTPUT_FOLDER'
@@ -1117,14 +1498,19 @@ class OdsProGenerator(QgsProcessingAlgorithm):
         # painel de ajuda do formulário: aceita HTML; a imagem é o ícone do ODS PRO
         url_ods = QUrl.fromLocalFile(
             os.path.join(PASTA_PLUGIN, 'docs', 'images', 'icon_ods.png')).toString()
+        url_logo = QUrl.fromLocalFile(
+            os.path.join(PASTA_PLUGIN, 'docs', 'images', 'icon.png')).toString()    
         return (
-            f'<p align="center"><img src="{url_ods}" width="220" height="220"></p>'
+            
             '<p>Gera planilhas ODS para o SIGEF, preenchidas automaticamente a '
             'partir das camadas parcela, vértice e limite. Aplicado em projetos '
             'com um ou poucos lotes, ou com centenas e milhares de lotes. '
             'Otimiza a etapa de processamento dos dados dos projetos de '
             'georreferenciamento de imóveis rurais.</p>'
-            '<p>Elaborado por Dra. Ranieli dos Anjos de Souza, Dr. Valdir Moura, Maik Rodrigues e Mychelle Novais/p>'
+            f'<p align="center"><img src="{url_ods}" width="300" height="300"></p>'
+            f'<p align="left"><img src="{url_logo}" width="96" height="96"></p>'
+
+            '<p>Elaborado por Dra. Ranieli dos Anjos de Souza, Dr. Valdir Moura, Maik Rodrigues, Márcio Guerra e Mychelle Novais</p>'
             '<p>Contato para treinamento: restaurear@gmail.com</p>'
             '<p><a href="https://wa.me/5569993512657">Fale conosco</a></p>'
         )
@@ -1147,7 +1533,7 @@ class OdsProGenerator(QgsProcessingAlgorithm):
                 self.PARCELA,
                 self.tr('Camada Parcela'),
                 [FONTE_POLIGONO],
-                defaultValue=find_layer_by_name("parcela")
+                defaultValue=camada_padrao("parcela")
             )
         )
 
@@ -1156,7 +1542,7 @@ class OdsProGenerator(QgsProcessingAlgorithm):
                 self.VERTICE,
                 self.tr('Camada Vertice'),
                 [FONTE_PONTO],
-                defaultValue=find_layer_by_name("vertice")
+                defaultValue=camada_padrao("vertice")
             )
         )
 
@@ -1165,7 +1551,7 @@ class OdsProGenerator(QgsProcessingAlgorithm):
                 self.LIMITE,
                 self.tr('Camada Limite'),
                 [FONTE_LINHA],
-                defaultValue=find_layer_by_name("limite")
+                defaultValue=camada_padrao("limite")
             )
         )
 
@@ -1191,11 +1577,13 @@ class OdsProGenerator(QgsProcessingAlgorithm):
 
         self.addParameter(
             QgsProcessingParameterString(
-                self.COD_EXCECAO,
+                self.COD_TECNICO,
                 self.tr(
-                    'Código do técnico executante (exceção). Ex.: ALS. '
-                    'Vértices de OUTROS códigos têm a cota Z corrigida pela '
-                    'camada vértice, com todas as casas decimais (vazio = desativado)'
+                    'Código do técnico executante (exceção). Ex.: ALS (vale se o código do vértice contém este texto). '
+                    'Altitude dos vértices com este código preenchida com 2 '
+                    'casas decimais; vértices de OUTROS códigos usam a cota Z '
+                    'da camada vértice, com todas as casas decimais '
+                    '(vazio = desativado)'
                 ),
                 defaultValue='',
                 optional=True
@@ -1205,7 +1593,7 @@ class OdsProGenerator(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterBoolean(
                 self.VER_Z,
-                self.tr('Verificar cota Z (nula, zero, baixa precisão |Z| < 10 ou fora de -10 a 3000 m)'),
+                self.tr('Verificar preenchimento de cota Z'),
                 defaultValue=True
             )
         )
@@ -1232,14 +1620,26 @@ class OdsProGenerator(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterFolderDestination(
                 self.OUTPUT_FOLDER,
-                self.tr('Pasta de saída dos ODS')
+                self.tr('Pasta de saída dos ODS'),
+                optional=False,
+                createByDefault=False
             )
         )
 
     def checkParameterValues(self, parameters, context):
-        """Exige a pasta de saída (o nome do arquivo segue a denominação)."""
+        """Exige a pasta de saída e camadas vindas do GeoDataBase."""
         if not self.parameterAsString(parameters, self.OUTPUT_FOLDER, context):
             return False, self.tr('Informe a "Pasta de saída dos ODS".')
+
+        for param, tabela in ((self.PARCELA, 'parcela'),
+                              (self.VERTICE, 'vertice'),
+                              (self.LIMITE, 'limite')):
+            camada = self.parameterAsVectorLayer(parameters, param, context)
+            if camada is None:
+                continue
+            erro = erro_da_camada(camada, tabela)
+            if erro:
+                return False, self.tr(erro)
 
         return super().checkParameterValues(parameters, context)
 
@@ -1264,45 +1664,30 @@ class OdsProGenerator(QgsProcessingAlgorithm):
             )
 
     def vld_z(self, features, layer):
-        """Valida a cota Z (campo "Z") dos vértices informados.
-
-        Reprova o vértice quando o Z é:
-        - ausente/nulo ou inválido;
-        - igual a zero;
-        - de baixa precisão: |Z| < LIMITE_BAIXA_PRECISAO (10);
-        - fora de -10 a 3000 m.
-        Os vértices reprovados ficam selecionados na tabela de atributos.
-        """
+        """Cota Z nula, zero ou fora de -10 a 3000 m nos vértices informados."""
         ids_problematicos = []
         msgs = []
 
-        def reprovar(feat, motivo):
-            ids_problematicos.append(feat.id())
-            msgs.append("  • Vértice '{}' (id {}): {}".format(
-                attr_texto(feat, 'vertice'), feat.id(), motivo
-            ))
-
         for feat in features:
             z_value = feat.attribute('Z')
-
             if z_value is None or z_value == '' or z_value == 'NULL' or _eh_nulo(z_value):
-                reprovar(feat, 'Cota Z não preenchida!')
+                ids_problematicos.append(feat.id())
+                msgs.append('  • Feição id {}: Cota Z não preenchida ou igual a zero!'.format(feat.id()))
                 continue
 
             try:
                 z = float(z_value)
             except (ValueError, TypeError):
-                reprovar(feat, 'Cota Z inválida!')
+                ids_problematicos.append(feat.id())
+                msgs.append('  • Feição id {}: Cota Z inválida!'.format(feat.id()))
                 continue
 
             if z == 0:
-                reprovar(feat, 'Cota Z igual a zero!')
-            elif abs(z) < LIMITE_BAIXA_PRECISAO:
-                reprovar(feat, 'Cota Z de baixa precisão (|Z| < {}): {}!'.format(
-                    LIMITE_BAIXA_PRECISAO, z
-                ))
+                ids_problematicos.append(feat.id())
+                msgs.append('  • Feição id {}: Cota Z não preenchida ou igual a zero!'.format(feat.id()))
             elif z > 3000 or z < -10:
-                reprovar(feat, 'Cota Z ({}) fora dos limites permitidos (-10 a 3000 m)!'.format(z))
+                ids_problematicos.append(feat.id())
+                msgs.append('  • Feição id {}: Cota Z ({}) fora dos limites permitidos (-10 a 3000 m)!'.format(feat.id(), z))
 
         if ids_problematicos:
             layer.selectByIds(ids_problematicos)
@@ -1329,7 +1714,7 @@ class OdsProGenerator(QgsProcessingAlgorithm):
 
             for linha in linhas_da_geometria(feat.geometry()):
                 for pnt in linha:
-                    if chave_ponto(pnt.x(), pnt.y()) not in idx_vertices:
+                    if idx_vertices.buscar(pnt) is None:
                         raise QgsProcessingException(
                             'Erro na feição limite {}: Ponto de coordenadas ({}, {}) '
                             'da camada limite não possui correspondente na camada vértice!'
@@ -1362,11 +1747,13 @@ class OdsProGenerator(QgsProcessingAlgorithm):
             if camada is None:
                 raise QgsProcessingException(self.invalidSourceError(parameters, param))
 
-        validar_banco_geodatabase((
-            ('Parcela', parcela_layer),
-            ('Vértice', vertice_layer),
-            ('Limite', limite_layer),
-        ))
+        # Uso restrito ao banco de dados GeoDataBase (também fora da interface).
+        for camada, tabela in ((parcela_layer, 'parcela'),
+                               (vertice_layer, 'vertice'),
+                               (limite_layer, 'limite')):
+            erro = erro_da_camada(camada, tabela)
+            if erro:
+                raise QgsProcessingException(erro)
 
         if vertice_layer.featureCount() == 0:
             raise QgsProcessingException('A camada Vértice não pode estar vazia!')
@@ -1376,17 +1763,9 @@ class OdsProGenerator(QgsProcessingAlgorithm):
         dec_coord = self.parameterAsInt(parameters, self.DEC_COORD, context)
         dec_prec = self.parameterAsInt(parameters, self.DEC_PREC, context)
         ver_z = self.parameterAsBool(parameters, self.VER_Z, context)
-        codigos_excecao = normalizar_codigos_excecao(
-            self.parameterAsString(parameters, self.COD_EXCECAO, context)
-        )
-
-        if codigos_excecao:
-            feedback.pushInfo(
-                "Código(s) do técnico executante (exceção): {}. Cota Z dos "
-                "demais códigos será corrigida pela camada vértice.".format(
-                    ", ".join(codigos_excecao)
-                )
-            )
+        cod_tecnico = (
+            self.parameterAsString(parameters, self.COD_TECNICO, context) or ''
+        ).strip().upper()
 
         pasta_saida = self.parameterAsString(parameters, self.OUTPUT_FOLDER, context)
         if not pasta_saida:
@@ -1396,7 +1775,7 @@ class OdsProGenerator(QgsProcessingAlgorithm):
             return self.processar_em_lote(
                 parcela_layer, vertice_layer, limite_layer,
                 dec_coord, dec_prec, ver_z, pasta_saida, feedback,
-                codigos_excecao
+                cod_tecnico
             )
 
         sel_proximo = self.parameterAsBool(parameters, self.SEL_PROXIMO, context)
@@ -1405,7 +1784,7 @@ class OdsProGenerator(QgsProcessingAlgorithm):
         return self.processar_lote_a_lote(
             parcela_layer, vertice_layer, limite_layer,
             dec_coord, dec_prec, ver_z, sel_proximo, val_completa,
-            pasta_saida, feedback, codigos_excecao
+            pasta_saida, feedback, cod_tecnico
         )
 
     # ---------------- modo: lote a lote ----------------
@@ -1413,7 +1792,7 @@ class OdsProGenerator(QgsProcessingAlgorithm):
     def processar_lote_a_lote(self, parcela_layer, vertice_layer, limite_layer,
                               dec_coord, dec_prec, ver_z, sel_proximo,
                               val_completa, pasta_saida, feedback,
-                              codigos_excecao=()):
+                              cod_tecnico=''):
         """Gera UMA planilha, da parcela selecionada."""
         selecionadas = parcela_layer.selectedFeatures()
 
@@ -1470,29 +1849,46 @@ class OdsProGenerator(QgsProcessingAlgorithm):
         if not limites:
             raise QgsProcessingException('Nenhum limite toca a parcela!')
 
+        # Atributos obrigatórios vazios: não gera a ODS, informa o erro e
+        # (se marcado) já seleciona a próxima parcela.
+        try:
+            if val_completa:
+                verificar_preenchimento(
+                    feicoes_por_localizacao(vertice_layer, geom, parcela_layer.crs()),
+                    feicoes_por_localizacao(limite_layer, geom, parcela_layer.crs())
+                )
+            else:
+                verificar_preenchimento(vertices, limites)
+        except QgsProcessingException:
+            if sel_proximo:
+                try:
+                    self.selecionar_proximo(parcela_layer, feature, feedback)
+                except Exception:
+                    pass
+            raise
+
         if val_completa:
             self.vld_projeto(vertices, limites)
 
         if ver_z:
             self.vld_z(vertices, vertice_layer)
 
-        # Nome do arquivo no mesmo padrão do modo em lote (denominacao)
         pasta_saida = os.path.abspath(os.path.expanduser(pasta_saida))
         os.makedirs(pasta_saida, exist_ok=True)
-
-        denominacao = attr_texto(feature, CAMPO_DENOMINACAO)
-        output_path = obter_caminho_livre(
-            pasta_saida, limpar_nome_arquivo(denominacao)
-        )
-        feedback.pushInfo("Arquivo de saída: {}".format(output_path))
+        # Nome do arquivo = denominação da parcela (substitui se já existir)
+        nome_base = limpar_nome_arquivo(
+            attr_texto(feature, CAMPO_DENOMINACAO)
+        ) or 'parcela'
+        output_path = os.path.join(pasta_saida, nome_base + ".ods")
 
         # Preenche o modelo do SIGEF: uma aba por parte (maior -> menor área)
         try:
             gerar_ods_em_planilha_limpa(
                 feature, vertices, limites, pasta_saida, output_path,
-                dec_coord, dec_prec, feedback, codigos_excecao
+                dec_coord, dec_prec, feedback, cod_tecnico
             )
         except QgsProcessingException:
+            # Mantém a parcela selecionada: após corrigir, basta executar de novo.
             raise
         except Exception as e:
             raise QgsProcessingException(
@@ -1507,9 +1903,15 @@ class OdsProGenerator(QgsProcessingAlgorithm):
 
         # Seleção automática (vértices, limites e próxima parcela).
         # Executada APÓS a geração para não interferir no processamento.
-        self.selecionar_por_parcela(
-            parcela_layer, vertice_layer, limite_layer, geom, feedback
-        )
+        try:
+            self.selecionar_por_parcela(
+                parcela_layer, vertice_layer, limite_layer, geom, feedback
+            )
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                'Falha ao selecionar vértices/limites: {}'.format(e),
+                'GeneratorOds', LOG_AVISO
+            )
         if sel_proximo:
             self.selecionar_proximo(parcela_layer, feature, feedback)
 
@@ -1556,37 +1958,52 @@ class OdsProGenerator(QgsProcessingAlgorithm):
             limite_layer.triggerRepaint()
 
     def selecionar_proximo(self, parcela_layer, feature_atual, feedback=None):
-        """Seleciona a próxima parcela da camada (após a parcela atual)."""
-        todas_parcelas = list(parcela_layer.getFeatures())
-        indice_atual = next(
-            (i for i, f in enumerate(todas_parcelas) if f.id() == feature_atual.id()),
-            -1
-        )
-
-        if indice_atual == -1:
-            msg = 'Parcela atual não encontrada para selecionar a próxima.'
-            QgsMessageLog.logMessage(msg, 'GeneratorOds', LOG_AVISO)
+        """Seleciona a próxima parcela, na ordem do campo 'denominacao'."""
+        def avisar(msg, nivel=LOG_INFO):
+            QgsMessageLog.logMessage(msg, 'GeneratorOds', nivel)
             if feedback:
                 feedback.pushInfo(msg)
-            return
 
-        if indice_atual + 1 < len(todas_parcelas):
-            proximo_id = todas_parcelas[indice_atual + 1].id()
-            parcela_layer.selectByIds([proximo_id])
-            msg = "Parcela ID '{}' selecionada.".format(proximo_id)
-            QgsMessageLog.logMessage(msg, 'GeneratorOds', LOG_INFO)
-        else:
-            msg = 'Você está na última parcela.'
-            QgsMessageLog.logMessage(msg, 'GeneratorOds', LOG_INFO)
+        try:
+            todas = list(parcela_layer.getFeatures())
+            com_nome = [f for f in todas if attr_texto(f, CAMPO_DENOMINACAO) != '']
+            if com_nome and any(f.id() == feature_atual.id() for f in com_nome):
+                ordenadas = sorted(
+                    com_nome,
+                    key=lambda f: chave_natural(attr_texto(f, CAMPO_DENOMINACAO))
+                )
+            else:
+                ordenadas = todas
 
-        if feedback:
-            feedback.pushInfo(msg)
+            indice = next(
+                (i for i, f in enumerate(ordenadas) if f.id() == feature_atual.id()),
+                -1
+            )
+
+            if indice == -1:
+                avisar('Parcela atual não encontrada para selecionar a próxima.',
+                       LOG_AVISO)
+                return
+
+            if indice + 1 >= len(ordenadas):
+                avisar('Você está na última parcela.')
+                return
+
+            proxima = ordenadas[indice + 1]
+            parcela_layer.removeSelection()
+            parcela_layer.selectByIds([proxima.id()])
+            parcela_layer.triggerRepaint()
+            avisar("Próxima parcela selecionada: '{}' (ID {}).".format(
+                attr_texto(proxima, CAMPO_DENOMINACAO), proxima.id()))
+        except Exception as e:
+            avisar('Não foi possível selecionar a próxima parcela: {}'.format(e),
+                   LOG_AVISO)
 
     # ---------------- modo: em lote ----------------
 
     def processar_em_lote(self, parcela_layer, vertice_layer, limite_layer,
                           dec_coord, dec_prec, ver_z, pasta_saida, feedback,
-                          codigos_excecao=()):
+                          cod_tecnico=''):
         """Gera uma planilha para cada parcela, a partir da parcela selecionada."""
         pasta_saida = os.path.abspath(os.path.expanduser(pasta_saida))
         os.makedirs(pasta_saida, exist_ok=True)
@@ -1615,24 +2032,7 @@ class OdsProGenerator(QgsProcessingAlgorithm):
             p for p in parcela_layer.getFeatures()
             if attr_texto(p, CAMPO_DENOMINACAO) != ''
         ]
-        # Parcelas com ÁREA ENCRAVADA primeiro; depois as demais.
-        # Dentro de cada grupo: ordem natural da denominacao.
-        encravadas = {p.id() for p in parcelas if tem_area_encravada(p.geometry())}
-
-        parcelas.sort(key=lambda p: (
-            0 if p.id() in encravadas else 1,
-            chave_natural(attr_texto(p, CAMPO_DENOMINACAO))
-        ))
-
-        if encravadas:
-            feedback.pushInfo(
-                "Parcelas com área encravada (geradas primeiro): {}".format(
-                    ", ".join(
-                        attr_texto(p, CAMPO_DENOMINACAO)
-                        for p in parcelas if p.id() in encravadas
-                    )
-                )
-            )
+        parcelas.sort(key=lambda p: chave_natural(attr_texto(p, CAMPO_DENOMINACAO)))
 
         indice_inicio = next(
             (i for i, p in enumerate(parcelas) if p.id() == parcela_inicial.id()),
@@ -1711,12 +2111,15 @@ class OdsProGenerator(QgsProcessingAlgorithm):
                 if not limites:
                     raise QgsProcessingException("Nenhum limite toca a parcela.")
 
+                # Atributos obrigatórios vazios: não gera, vai para a próxima.
+                verificar_preenchimento(vertices, limites)
+
                 if ver_z:
                     self.vld_z(vertices, vertice_layer)
 
                 gerar_ods_em_planilha_limpa(
                     parcela, vertices, limites, pasta_saida, caminho_saida,
-                    dec_coord, dec_prec, feedback, codigos_excecao
+                    dec_coord, dec_prec, feedback, cod_tecnico
                 )
 
                 gerados.append(caminho_saida)

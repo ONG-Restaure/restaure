@@ -327,7 +327,7 @@ def linhas_da_geometria(geom):
     except Exception:
         return []
 
-    return [l for l in linhas if len(l) >= 2]
+    return [linha for linha in linhas if len(linha) >= 2]
 
 
 def pontos_da_geometria(geom):
@@ -808,8 +808,8 @@ class IndiceVertices(dict):
                 continue
             # o vértice precisa tocar também o limite
             if idx_limites is not None and idx_limites.linhas:
-                if min(_dist_ponto_linha(q.x(), q.y(), l)
-                       for _, l in idx_limites.linhas) > TOLERANCIA_VERTICE:
+                if min(_dist_ponto_linha(q.x(), q.y(), linha)
+                       for _, linha in idx_limites.linhas) > TOLERANCIA_VERTICE:
                     continue
             if melhor_d is None or d < melhor_d:
                 melhor, melhor_d = f, d
@@ -1499,9 +1499,8 @@ class OdsProGenerator(QgsProcessingAlgorithm):
         url_ods = QUrl.fromLocalFile(
             os.path.join(PASTA_PLUGIN, 'docs', 'images', 'icon_ods.png')).toString()
         url_logo = QUrl.fromLocalFile(
-            os.path.join(PASTA_PLUGIN, 'docs', 'images', 'icon.png')).toString()    
+            os.path.join(PASTA_PLUGIN, 'docs', 'images', 'icon.png')).toString()
         return (
-            
             '<p>Gera planilhas ODS para o SIGEF, preenchidas automaticamente a '
             'partir das camadas parcela, vértice e limite. Aplicado em projetos '
             'com um ou poucos lotes, ou com centenas e milhares de lotes. '
@@ -1510,7 +1509,8 @@ class OdsProGenerator(QgsProcessingAlgorithm):
             f'<p align="center"><img src="{url_ods}" width="300" height="300"></p>'
             f'<p align="left"><img src="{url_logo}" width="96" height="96"></p>'
 
-            '<p>Elaborado por Dra. Ranieli dos Anjos de Souza, Dr. Valdir Moura, Maik Rodrigues, Márcio Guerra e Mychelle Novais</p>'
+            '<p>Elaborado por Dra. Ranieli dos Anjos de Souza, Dr. Valdir Moura, '
+            'Maik Rodrigues, Márcio Guerra e Mychelle Novais</p>'
             '<p>Contato para treinamento: restaurear@gmail.com</p>'
             '<p><a href="https://wa.me/5569993512657">Fale conosco</a></p>'
         )
@@ -1687,7 +1687,8 @@ class OdsProGenerator(QgsProcessingAlgorithm):
                 msgs.append('  • Feição id {}: Cota Z não preenchida ou igual a zero!'.format(feat.id()))
             elif z > 3000 or z < -10:
                 ids_problematicos.append(feat.id())
-                msgs.append('  • Feição id {}: Cota Z ({}) fora dos limites permitidos (-10 a 3000 m)!'.format(feat.id(), z))
+                msgs.append(
+                    '  • Feição id {}: Cota Z ({}) fora dos limites permitidos (-10 a 3000 m)!'.format(feat.id(), z))
 
         if ids_problematicos:
             layer.selectByIds(ids_problematicos)

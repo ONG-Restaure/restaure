@@ -46,7 +46,8 @@ from qgis.core import (
     QgsProcessingParameterBoolean, QgsProcessingParameterFeatureSink, QgsProcessingUtils,
     QgsProcessingParameterFile,
     QgsCategorizedSymbolRenderer, QgsFillSymbol, QgsProcessingLayerPostProcessorInterface,
-    QgsGraduatedSymbolRenderer, QgsLayerTreeLayer, QgsProject, QgsSingleSymbolRenderer, QgsRendererCategory, QgsRendererRange,
+    QgsGraduatedSymbolRenderer, QgsLayerTreeLayer, QgsProject, QgsSingleSymbolRenderer,
+    QgsRendererCategory, QgsRendererRange,
     QgsDistanceArea, QgsFields, QgsField, QgsFeature, QgsGeometry, QgsMapLayer,
     QgsVectorLayer, QgsProperty,
 )

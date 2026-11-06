@@ -456,6 +456,22 @@ def selecionar_por_localizacao(camada, geometria_parcela, crs_parcela):
     return ids
 
 
+def parcelas_vizinhas(camada_parcela, parcela):
+    """Demais parcelas da camada que tocam/encostam na parcela (p/ conferir LA6)."""
+    geom = parcela.geometry()
+    if geom is None or geom.isNull() or geom.isEmpty():
+        return []
+    retangulo = geom.boundingBox()
+    retangulo.grow(1e-6 if camada_parcela.crs().isGeographic() else 1e-2)
+    return [
+        f for f in camada_parcela.getFeatures(
+            QgsFeatureRequest().setFilterRect(retangulo)
+        )
+        if f.id() != parcela.id() and f.hasGeometry()
+        and not f.geometry().isEmpty()
+    ]
+
+
 # ---------------- atributos ----------------
 
 def _eh_nulo(valor):
@@ -541,8 +557,19 @@ def dd2dms(dd, n_digits=3):
     return texto.replace('.', ',')
 
 
+def _area_com_sinal(pontos):
+    """Área com sinal do anel ABERTO (Gauss): > 0 anti-horário, < 0 horário."""
+    soma = 0.0
+    n = len(pontos)
+    for i in range(n):
+        a, b = pontos[i], pontos[(i + 1) % n]
+        soma += a.x() * b.y() - b.x() * a.y()
+    return soma / 2.0
+
+
 def preparar_anel(anel):
-    """Remove pontos repetidos, fecha o anel e inicia no ponto de maior latitude.
+    """Remove pontos repetidos, fecha o anel, garante o sentido HORÁRIO e
+    inicia no ponto de maior latitude.
 
     Sem operações topológicas: funciona mesmo com auto-intersecção.
     """
@@ -574,6 +601,11 @@ def preparar_anel(anel):
         )
 
     aberto = pts[:-1]
+
+    # Sentido HORÁRIO (exigência do SIGEF): anel anti-horário é invertido.
+    if _area_com_sinal(aberto) > 0:
+        aberto.reverse()
+
     inicio = max(range(len(aberto)), key=lambda i: aberto[i].y())
 
     return aberto[inicio:] + aberto[:inicio] + [aberto[inicio]]
@@ -854,12 +886,78 @@ def _dist_ponto_linha(px, py, linha):
     )
 
 
+def _posicao_na_linha(px, py, linha):
+    """Distância ao longo da polilinha até a projeção do ponto (p/ dar sentido)."""
+    melhor_d, melhor_pos, acumulado = None, 0.0, 0.0
+    for a, b in zip(linha[:-1], linha[1:]):
+        dx, dy = b.x() - a.x(), b.y() - a.y()
+        tam = (dx * dx + dy * dy) ** 0.5
+        if tam > 0:
+            t = max(0.0, min(1.0, ((px - a.x()) * dx + (py - a.y()) * dy)
+                             / (tam * tam)))
+        else:
+            t = 0.0
+        cx, cy = a.x() + t * dx, a.y() + t * dy
+        d = ((px - cx) ** 2 + (py - cy) ** 2) ** 0.5
+        if melhor_d is None or d < melhor_d:
+            melhor_d, melhor_pos = d, acumulado + t * tam
+        acumulado += tam
+    return melhor_pos
+
+
 class IndiceLimites(dict):
-    """Índice exato dos segmentos (A->B e B->A) + busca geométrica de reserva."""
+    """Índice dos segmentos das linhas de limite NO SENTIDO DIGITALIZADO (A->B)
+    + busca geométrica de reserva.
+
+    Cada divisa é desenhada duas vezes (uma linha por parcela, em sentidos
+    opostos, com o confrontante de cada lado). O limite de uma parcela é o que
+    corre no mesmo sentido do anel horário dela.
+    """
 
     def __init__(self):
         super().__init__()
         self.linhas = []  # (feição, polilinha)
+
+    def _geometrico(self, pnt, pnt_seg, horario):
+        """Limite que cobre o segmento (tolerância). horario=True: só o que corre
+        de pnt para pnt_seg; horario=False: só o que corre ao contrário."""
+        mx = (pnt.x() + pnt_seg.x()) / 2.0
+        my = (pnt.y() + pnt_seg.y()) / 2.0
+        melhor, melhor_d = None, None
+        for feat, linha in self.linhas:
+            d = max(
+                _dist_ponto_linha(pnt.x(), pnt.y(), linha),
+                _dist_ponto_linha(pnt_seg.x(), pnt_seg.y(), linha),
+                _dist_ponto_linha(mx, my, linha),
+            )
+            if d > TOLERANCIA_LIMITE:
+                continue
+            p0 = _posicao_na_linha(pnt.x(), pnt.y(), linha)
+            p1 = _posicao_na_linha(pnt_seg.x(), pnt_seg.y(), linha)
+            if (p1 > p0) != horario:
+                continue
+            if melhor_d is None or d < melhor_d:
+                melhor, melhor_d = feat, d
+        return melhor
+
+    def buscar_horario(self, pnt, pnt_seg):
+        """Limite do segmento pnt -> pnt_seg no MESMO sentido (horário do anel).
+        None se só existir a linha em sentido contrário (ou nenhuma)."""
+        ka = chave_ponto(pnt.x(), pnt.y())
+        kb = chave_ponto(pnt_seg.x(), pnt_seg.y())
+        feat = self.get((ka, kb))
+        if feat is not None:
+            return feat
+        return self._geometrico(pnt, pnt_seg, True)
+
+    def buscar_anti_horario(self, pnt, pnt_seg):
+        """Limite que cobre o segmento, mas em sentido contrário (diagnóstico)."""
+        ka = chave_ponto(pnt.x(), pnt.y())
+        kb = chave_ponto(pnt_seg.x(), pnt_seg.y())
+        feat = self.get((kb, ka))
+        if feat is not None:
+            return feat
+        return self._geometrico(pnt, pnt_seg, False)
 
     def buscar(self, pnt, pnt_seg):
         ka = chave_ponto(pnt.x(), pnt.y())
@@ -941,16 +1039,18 @@ def montar_corpo_parte(numero, anel, idx_vertices, idx_limites,
                 )
             )
 
-        feat_l = idx_limites.buscar(pnt, pnt_seg)
+        # Somente o limite em SENTIDO HORÁRIO (o da própria parcela).
+        feat_l = idx_limites.buscar_horario(pnt, pnt_seg)
 
         if feat_l is None:
-            aviso_analista(
-                'Parte {}: limite não encontrado para o segmento ({}, {}) '
-                'para ({}, {}). Campos de limite deixados em branco.'.format(
+            raise QgsProcessingException(
+                'Parte {}: falta o limite em sentido horário no lado ({}, {}) '
+                'para ({}, {}). ODS não gerada.'.format(
                     numero, pnt.y(), pnt.x(), pnt_seg.y(), pnt_seg.x()
                 )
             )
-        elif feat_l.id() not in validados['l']:
+
+        if feat_l.id() not in validados['l']:
             try:
                 validar_limite(feat_l)
             except QgsProcessingException as e:
@@ -977,13 +1077,10 @@ def montar_corpo_parte(numero, anel, idx_vertices, idx_limites,
             )
             metodo_pos = attr_texto(feat_v, 'metodo_pos')
 
-        if feat_l is None:
-            tipo = confrontan = cns = matricula = ''
-        else:
-            tipo = attr_texto(feat_l, 'tipo')
-            confrontan = attr_texto(feat_l, 'confrontan')
-            cns = attr_texto(feat_l, 'cns')
-            matricula = attr_texto(feat_l, 'matricula')
+        tipo = attr_texto(feat_l, 'tipo')
+        confrontan = attr_texto(feat_l, 'confrontan')
+        cns = attr_texto(feat_l, 'cns')
+        matricula = attr_texto(feat_l, 'matricula')
 
         k = k1 + 12
         valores = (
@@ -1135,26 +1232,12 @@ def _vertice_estrito(idx_vertices, pnt):
 
 
 def _limite_estrito(idx_limites, pnt, pnt_seg):
-    """Limite que cobre o segmento da parcela (sem busca pelo mais próximo)."""
-    feat = (idx_limites.get((chave_ponto(pnt.x(), pnt.y()),
-                             chave_ponto(pnt_seg.x(), pnt_seg.y())))
-            or idx_limites.get((chave_ponto(pnt_seg.x(), pnt_seg.y()),
-                                chave_ponto(pnt.x(), pnt.y()))))
-    if feat is not None:
-        return feat
+    """Limite que cobre o segmento da parcela NO SENTIDO HORÁRIO (pnt -> pnt_seg).
 
-    mx = (pnt.x() + pnt_seg.x()) / 2.0
-    my = (pnt.y() + pnt_seg.y()) / 2.0
-    melhor, melhor_d = None, None
-    for f, linha in idx_limites.linhas:
-        d = max(
-            _dist_ponto_linha(pnt.x(), pnt.y(), linha),
-            _dist_ponto_linha(pnt_seg.x(), pnt_seg.y(), linha),
-            _dist_ponto_linha(mx, my, linha),
-        )
-        if d <= TOLERANCIA_LIMITE and (melhor_d is None or d < melhor_d):
-            melhor, melhor_d = f, d
-    return melhor
+    Sem busca pelo mais próximo e sem aceitar a linha em sentido contrário
+    (que é a divisa desenhada para a parcela vizinha).
+    """
+    return idx_limites.buscar_horario(pnt, pnt_seg)
 
 
 def _no_de_limite_em(idx_limites, pnt):
@@ -1174,17 +1257,114 @@ def _normalizar_nome(texto):
     return ' '.join(texto.lower().split())
 
 
-def verificar_conexao_parcela(parcela, vertices, limites):
+def _normalizar_confrontante(texto):
+    """Nome para comparar confrontantes: sem acento/caixa, hífens e espaços
+    uniformes ("Lote 260 – Parte 1" == "lote 260 - parte 1")."""
+    texto = re.sub(r'[‐-―−]', '-', texto or '')
+    texto = _normalizar_nome(texto)
+    return re.sub(r'\s*-\s*', ' - ', texto).strip()
+
+
+def _nomes_aceitos(denominacao, numero, total):
+    """Confrontantes aceitos para a parte `numero` (de `total`) da parcela.
+
+    Multiparte: "<denominação> - Parte N". Parte única: "<denominação>"
+    (ou "<denominação> - Parte 1").
+    """
+    base = _normalizar_confrontante(denominacao)
+    if not base:
+        return set()
+    nome_parte = '{} - parte {}'.format(base, numero)
+    if total > 1:
+        return {nome_parte}
+    return {base, nome_parte}
+
+
+def _candidatos_vizinhos(parcela, partes_parcela, vizinhas):
+    """Polígonos que podem ser confrontantes da parcela.
+
+    Lista de (número da parte própria ou None, nomes aceitos, anel externo):
+    as OUTRAS partes da própria parcela (divisa entre partes) e todas as
+    partes das parcelas vizinhas.
+    """
+    candidatos = []
+    den_propria = attr_texto(parcela, CAMPO_DENOMINACAO)
+
+    for n, parte in enumerate(partes_parcela, start=1):
+        candidatos.append((
+            n, _nomes_aceitos(den_propria, n, len(partes_parcela)), parte[0]
+        ))
+
+    for outra in vizinhas or []:
+        if outra.id() == parcela.id():
+            continue
+        partes = partes_ordenadas_por_area(outra.geometry())
+        den = attr_texto(outra, CAMPO_DENOMINACAO)
+        for n, parte in enumerate(partes, start=1):
+            candidatos.append((None, _nomes_aceitos(den, n, len(partes)),
+                               parte[0]))
+
+    return candidatos
+
+
+def _vizinhos_do_lado(candidatos, numero_atual, pnt, pnt_seg):
+    """Candidatos cujo contorno cobre o lado pnt -> pnt_seg (extremos e meio)."""
+    mx = (pnt.x() + pnt_seg.x()) / 2.0
+    my = (pnt.y() + pnt_seg.y()) / 2.0
+    achados = []
+    for numero, nomes, anel in candidatos:
+        if numero is not None and numero == numero_atual:
+            continue  # a própria parte não é vizinha de si mesma
+        if max(_dist_ponto_linha(pnt.x(), pnt.y(), anel),
+               _dist_ponto_linha(pnt_seg.x(), pnt_seg.y(), anel),
+               _dist_ponto_linha(mx, my, anel)) <= TOLERANCIA_LIMITE:
+            achados.append(nomes)
+    return achados
+
+
+def _pendencia_la6(local, feat_l, numero, pnt, pnt_seg, candidatos):
+    """Texto da pendência do limite LA6 (confrontante x polígono vizinho) ou None."""
+    confrontan_txt = attr_texto(feat_l, 'confrontan')
+    confrontan_norm = _normalizar_confrontante(confrontan_txt)
+    vizinhos = _vizinhos_do_lado(candidatos, numero, pnt, pnt_seg)
+
+    if not vizinhos:
+        return (
+            '{}: limite LA6 (id {}) sem polígono vizinho no lado até ({}, {}) '
+            'para conferir o confrontante "{}"'.format(
+                local, feat_l.id(), pnt_seg.y(), pnt_seg.x(), confrontan_txt
+            )
+        )
+
+    if not any(confrontan_norm in nomes for nomes in vizinhos):
+        esperado = ' ou '.join(sorted(n for nomes in vizinhos for n in nomes))
+        return (
+            '{}: limite LA6 (id {}): confrontante "{}" NÃO corresponde ao '
+            'polígono vizinho (esperado: {})'.format(
+                local, feat_l.id(), confrontan_txt, esperado
+            )
+        )
+
+    return None
+
+
+def verificar_conexao_parcela(parcela, vertices, limites, vizinhas=None):
     """Erro (a ODS NÃO é gerada) se a parcela estiver desconectada.
 
     Para o anel externo de CADA parte da parcela, exige:
       1) vértice (ponto) sobre cada vértice do polígono;
-      2) limite (linha) cobrindo cada lado do polígono;
+      2) limite (linha) cobrindo cada lado do polígono NO SENTIDO HORÁRIO
+         (o anel é percorrido em sentido horário; a linha de limite que corre
+         em sentido contrário é a da parcela vizinha e não vale);
       3) limite e parcela conectados no vértice: o vértice da parcela
          coincide com um nó da linha de limite (e com o ponto vértice);
       4) código do vértice NÃO repetido na mesma aba (parte);
       5) confrontante que repete a denominação da parcela deve mencionar
-         "parte" (ex.: "Fazenda X - Parte 2").
+         "parte" (ex.: "Fazenda X - Parte 2");
+      6) limite de tipo "LA6": o confrontante deve corresponder ao polígono
+         vizinho que divide aquele lado (denominação da parcela vizinha, com
+         "- Parte N" quando ela é multiparte; vale também para outra parte da
+         própria parcela).
     Lista TODAS as pendências, para o usuário corrigir de uma vez.
     """
     partes = partes_ordenadas_por_area(parcela.geometry())
@@ -1201,6 +1381,8 @@ def verificar_conexao_parcela(parcela, vertices, limites):
 
     denominacao = _normalizar_nome(attr_texto(parcela, CAMPO_DENOMINACAO))
     confrontantes_ja_avisados = set()
+    la6_ja_avisados = set()
+    candidatos = _candidatos_vizinhos(parcela, partes, vizinhas)
 
     for numero, parte in enumerate(partes, start=1):
         anel = preparar_anel(parte[0])
@@ -1232,12 +1414,31 @@ def verificar_conexao_parcela(parcela, vertices, limites):
 
             feat_l = _limite_estrito(idx_limites, pnt, pnt_seg)
             if feat_l is None:
-                pendencias.append(
-                    '{}: falta o LIMITE no lado até ({}, {})'.format(
-                        local, pnt_seg.y(), pnt_seg.x()
+                contrario = idx_limites.buscar_anti_horario(pnt, pnt_seg)
+                if contrario is not None:
+                    pendencias.append(
+                        '{}: falta o LIMITE em SENTIDO HORÁRIO no lado até '
+                        '({}, {}) (só existe a linha em sentido contrário, '
+                        'limite id {})'.format(
+                            local, pnt_seg.y(), pnt_seg.x(), contrario.id()
+                        )
                     )
+                else:
+                    pendencias.append(
+                        '{}: falta o LIMITE em SENTIDO HORÁRIO no lado até '
+                        '({}, {})'.format(local, pnt_seg.y(), pnt_seg.x())
+                    )
+            elif (attr_texto(feat_l, 'tipo').upper() == 'LA6'
+                    and (feat_l.id(), numero) not in la6_ja_avisados):
+                pendencia = _pendencia_la6(
+                    local, feat_l, numero, pnt, pnt_seg, candidatos
                 )
-            elif denominacao and feat_l.id() not in confrontantes_ja_avisados:
+                if pendencia:
+                    la6_ja_avisados.add((feat_l.id(), numero))
+                    pendencias.append(pendencia)
+
+            if (feat_l is not None and denominacao
+                    and feat_l.id() not in confrontantes_ja_avisados):
                 confrontan = _normalizar_nome(attr_texto(feat_l, 'confrontan'))
                 if (re.search(r'(?<!\w)' + re.escape(denominacao) + r'(?!\w)',
                               confrontan)
@@ -1380,11 +1581,13 @@ def gerar_ods_parcela(parcela, vertices, limites, caminho_saida,
 
 def gerar_ods_em_planilha_limpa(parcela, vertices, limites, pasta_saida,
                                 caminho_final, dec_coord, dec_prec, feedback,
-                                cod_tecnico=''):
+                                cod_tecnico='', vizinhas=None):
     """Gera o ODS em pasta temporária exclusiva e só depois grava o arquivo final."""
     # Bloqueia ANTES de qualquer escrita/remoção: polígono sem vértice/limite
     # ou com limite e parcela desconectados no vértice não gera ODS.
-    verificar_conexao_parcela(parcela, vertices, limites)
+    # Também bloqueia: falta de limite em sentido horário e confrontante de
+    # limite LA6 que não corresponde ao polígono vizinho.
+    verificar_conexao_parcela(parcela, vertices, limites, vizinhas)
 
     if os.path.exists(caminho_final):
         try:
@@ -1886,7 +2089,8 @@ class OdsProGenerator(QgsProcessingAlgorithm):
         try:
             gerar_ods_em_planilha_limpa(
                 feature, vertices, limites, pasta_saida, output_path,
-                dec_coord, dec_prec, feedback, cod_tecnico
+                dec_coord, dec_prec, feedback, cod_tecnico,
+                parcelas_vizinhas(parcela_layer, feature)
             )
         except QgsProcessingException:
             # Mantém a parcela selecionada: após corrigir, basta executar de novo.
@@ -2120,7 +2324,8 @@ class OdsProGenerator(QgsProcessingAlgorithm):
 
                 gerar_ods_em_planilha_limpa(
                     parcela, vertices, limites, pasta_saida, caminho_saida,
-                    dec_coord, dec_prec, feedback, cod_tecnico
+                    dec_coord, dec_prec, feedback, cod_tecnico,
+                    parcelas_vizinhas(parcela_layer, parcela)
                 )
 
                 gerados.append(caminho_saida)

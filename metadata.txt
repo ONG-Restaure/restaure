@@ -11,7 +11,6 @@ category=Analysis
 icon=docs/images/icon.png
 tags=georeferencing,environmental compliance,incra,forest code,app,permanent preservation area,springs,hydrography,drainage,sigef,ods,spreadsheet
 hasProcessingProvider=yes
-supportsQt6=True
 experimental=False
 deprecated=False
 

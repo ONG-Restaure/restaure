@@ -18,6 +18,7 @@ O Plugin Restaure reúne algoritmos de geoprocessamento na **Caixa de Ferramenta
 - [Instalação e uso](#instalação-e-uso)
 - [Requisitos gerais](#requisitos-gerais)
 - [Detalhes das ferramentas](#detalhes-das-ferramentas)
+  - [ODS PRO](#ods-pro)
   - [Gerador de APP](#gerador-de-app)
   - [Gerador de Nascentes](#gerador-de-nascentes)
 - [Fluxo de trabalho sugerido](#fluxo-de-trabalho-sugerido)
@@ -34,7 +35,7 @@ O Plugin Restaure reúne algoritmos de geoprocessamento na **Caixa de Ferramenta
 |---|---|---|
 | [Gerador de Nascentes](#gerador-de-nascentes) | Identifica possíveis nascentes a partir de redes de drenagem e aponta suspeitas de desconexão e possíveis fozes. | Restaure → Regularização Ambiental → Gerador de nascentes |
 | [Gerador de APP](#gerador-de-app) | Delimita Áreas de Preservação Permanente (APP) e analisa classes ambientais por lote. | Restaure → Regularização Ambiental → Gerador de APP |
-| ODS PRO | Gera as planilhas ODS do SIGEF a partir das camadas parcela, vértice e limite do GeoDataBase, parcela a parcela ou em lote (requer LibreOffice). | Restaure → Georreferenciamento → ODS PRO |
+| [ODS PRO](#ods-pro) | Gera as planilhas ODS do SIGEF a partir das camadas parcela, vértice e limite do GeoDataBase, parcela a parcela ou em lote (requer LibreOffice). | Restaure → Georreferenciamento → ODS PRO |
 
 > Novas ferramentas serão acrescentadas a esta tabela conforme forem publicadas.
 
@@ -62,6 +63,57 @@ Os dados de entrada específicos de cada ferramenta estão descritos nas seçõe
 ---
 
 ## Detalhes das ferramentas
+
+### ODS PRO
+
+Ferramenta para processamento de dados de projetos de georreferenciamento, baseada no **Manual Técnico para Georreferenciamento de Imóveis Rurais (MTGIR)** atualizado do INCRA. Automatiza a criação da planilha ODS do SIGEF, integrando-se diretamente ao QGIS e utilizando macros para preencher a planilha com os dados extraídos das camadas de vértice, limite e parcela.
+
+**Funcionalidades**
+
+- Seleção de lotes para gerar as ODS em grande volume.
+- Denominação da ODS no padrão SIGEF.
+- Definição de partes em lotes multiparte.
+- Correção de altitudes já contidas no SIGEF, de lotes confrontantes.
+
+**Modos de uso**
+
+| Modo | Descrição |
+|---|---|
+| **Lote a lote** | Gera a ODS apenas do lote selecionado. As camadas parcela, limite e vértice são selecionadas automaticamente. |
+| **Em Lote** | Gera as ODS de todos os lotes do projeto de forma automática. Após a criação do primeiro lote, o sistema assume o controle e gera as demais: parcela, limites e vértices são identificados e selecionados em sequência, conforme a numeração dos lotes. |
+
+O modo **Em Lote** simplifica a geração de múltiplos lotes, economizando tempo e reduzindo a possibilidade de erros na seleção e na denominação manual.
+
+**Opções da ferramenta**
+
+- Geração de ODS **Em Lote** (grande volume) a partir da parcela selecionada.
+- Geração de ODS **lote a lote**.
+- **Código do técnico executante**: permite informar o código cujas casas decimais devem ser alteradas, mantendo os vértices de certificações vizinhas com as casas decimais conforme constam no SIGEF (há certificações com três casas decimais; uma vez aprovadas no sistema, devem ser seguidas como estão).
+- Ao definir a pasta de saída, cada ODS é salva conforme a coluna **denominacao** (“Denominação do Imóvel”), corrigida conforme as exigências do SIGEF.
+
+**Dados de entrada**
+
+Após elaborar a base contendo vértice(s), limite(s) e parcela(s), abra o ODS PRO. O modelo de dados (**GeoDataBase**) pode ser implementado em GeoPackage, PostGIS ou Shapefile e se adapta às exigências do SIGEF.
+
+| Camada | Obrigatória | Atributos |
+|---|---|---|
+| vertice | Sim | `sigma_x`, `sigma_y`, `sigma_z`, `indice`, `metodo_pos`, `tipo_verti`, `vertice`, `qrcode` |
+| limite | Sim | `tipo`, `confrontan`, `cns`, `matricula`, `qrcode` |
+| parcela | Sim | `nome`, `nat_serv`, `pessoa`, `cpf_cnpj`, `denominacao`, `situacao`, `natureza`, `sncr`, `matricula`, `cod_cartorio`, `data`, `qrcode`, `municipio`, `uf` |
+
+- **Vértice**: ponto onde a linha limítrofe do imóvel muda de direção ou onde há interseção com outra linha limítrofe de imóveis contíguos ou servidões de passagem (INCRA, 2022).
+- **Limite**: linha que define as confrontações, pelo tipo de confrontação ou pelo próprio confrontante.
+- **Parcela**: representação planimétrica do imóvel levantado, em geometria do tipo polígono.
+
+**Resultados**
+
+Planilhas ODS do SIGEF, uma por lote, salvas na pasta escolhida e nomeadas no padrão SIGEF.
+
+**Observações**
+
+Requer **LibreOffice**. As camadas `hist_vertice`, `hist_limite` e `hist_parcela` são opcionais e úteis para armazenar o histórico de georreferenciamentos anteriores, permitindo consultar códigos anteriores, fazer análises e gerar relatórios de desempenho.
+
+---
 
 ### Gerador de APP
 
@@ -154,7 +206,9 @@ O Plugin Restaure é desenvolvido por:
 |---|---|
 | **Dra. Ranieli dos Anjos de Souza** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/ranieli-dos-anjos-de-souza-5a291b32/) |
 | **Dr. Valdir Moura** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/valdir-moura-181a7b14) |
+| **Carolina Potratz** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/carolina-potratz-giraldello) |
 | **Fernanda Gessner** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)]("") |
+| **Leandro França** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/geoleandrofranca/) |
 | **Maik Rodrigues** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/maikrodriguess/) |
 | **Márcio Guerra** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/m%C3%A1rcio-guerra-69b8833b3) |
 | **Mychelle Novais** | [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/mychelle-novais/) |

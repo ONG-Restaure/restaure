@@ -75,43 +75,24 @@ Ferramenta para processamento de dados de projetos de georreferenciamento, basea
 - Definição de partes em lotes multiparte.
 - Correção de altitudes já contidas no SIGEF, de lotes confrontantes.
 
-**Modos de uso**
-
-| Modo | Descrição |
-|---|---|
-| **Lote a lote** | Gera a ODS apenas do lote selecionado. As camadas parcela, limite e vértice são selecionadas automaticamente. |
-| **Em Lote** | Gera as ODS de todos os lotes do projeto de forma automática. Após a criação do primeiro lote, o sistema assume o controle e gera as demais: parcela, limites e vértices são identificados e selecionados em sequência, conforme a numeração dos lotes. |
-
-O modo **Em Lote** simplifica a geração de múltiplos lotes, economizando tempo e reduzindo a possibilidade de erros na seleção e na denominação manual.
-
-**Opções da ferramenta**
-
-- Geração de ODS **Em Lote** (grande volume) a partir da parcela selecionada.
-- Geração de ODS **lote a lote**.
-- **Código do técnico executante**: permite informar o código cujas casas decimais devem ser alteradas, mantendo os vértices de certificações vizinhas com as casas decimais conforme constam no SIGEF (há certificações com três casas decimais; uma vez aprovadas no sistema, devem ser seguidas como estão).
-- Ao definir a pasta de saída, cada ODS é salva conforme a coluna **denominacao** (“Denominação do Imóvel”), corrigida conforme as exigências do SIGEF.
-
 **Dados de entrada**
 
-Após elaborar a base contendo vértice(s), limite(s) e parcela(s), abra o ODS PRO. O modelo de dados (**GeoDataBase**) pode ser implementado em GeoPackage, PostGIS ou Shapefile e se adapta às exigências do SIGEF.
-
-| Camada | Obrigatória | Atributos |
+| Dado | Obrigatório | Observação |
 |---|---|---|
-| vertice | Sim | `sigma_x`, `sigma_y`, `sigma_z`, `indice`, `metodo_pos`, `tipo_verti`, `vertice`, `qrcode` |
-| limite | Sim | `tipo`, `confrontan`, `cns`, `matricula`, `qrcode` |
-| parcela | Sim | `nome`, `nat_serv`, `pessoa`, `cpf_cnpj`, `denominacao`, `situacao`, `natureza`, `sncr`, `matricula`, `cod_cartorio`, `data`, `qrcode`, `municipio`, `uf` |
-
-- **Vértice**: ponto onde a linha limítrofe do imóvel muda de direção ou onde há interseção com outra linha limítrofe de imóveis contíguos ou servidões de passagem (INCRA, 2022).
-- **Limite**: linha que define as confrontações, pelo tipo de confrontação ou pelo próprio confrontante.
-- **Parcela**: representação planimétrica do imóvel levantado, em geometria do tipo polígono.
+| Modo de geração | Sim | **Lote a lote** (apenas a parcela selecionada) ou **Em lote** (todas as parcelas, a partir da selecionada: após o primeiro lote, o sistema assume o controle e gera as demais ODS em sequência de numeração). |
+| Camada parcela | Sim | Polígono do imóvel levantado (GeoDataBase). |
+| Camada vértice | Sim | Pontos de mudança de direção e interseções da linha limítrofe (GeoDataBase). |
+| Camada limite | Sim | Linhas que definem as confrontações (GeoDataBase). |
+| Código do técnico executante | Opcional | Mantém as casas decimais dos vértices de certificações vizinhas conforme constam no SIGEF. |
+| Pasta de saída das ODS | Opcional | Cada ODS é salva conforme a coluna `denominacao`, corrigida conforme as exigências do SIGEF. |
 
 **Resultados**
 
-Planilhas ODS do SIGEF, uma por lote, salvas na pasta escolhida e nomeadas no padrão SIGEF.
+Planilhas ODS do SIGEF, uma por lote, nomeadas no padrão SIGEF.
 
 **Observações**
 
-Requer **LibreOffice**. As camadas `hist_vertice`, `hist_limite` e `hist_parcela` são opcionais e úteis para armazenar o histórico de georreferenciamentos anteriores, permitindo consultar códigos anteriores, fazer análises e gerar relatórios de desempenho.
+Requer **LibreOffice**. Para os atributos de cada camada do GeoDataBase, o passo a passo e as demais opções, veja a página [ODS PRO](https://github.com/ONG-Restaure/restaure/wiki/ODS-PRO) na wiki.
 
 ---
 
